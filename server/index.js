@@ -28,15 +28,34 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  // 接收握手房间信息
+  // Generate a random 6-digit code
+  socket.on('create_code', (callback) => {
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    socket.join(code);
+    console.log(`Socket ${socket.id} created room: ${code}`);
+    callback({ code });
+  });
+
+  // Verify and join an existing room
+  socket.on('join_code', (code, callback) => {
+    const room = io.sockets.adapter.rooms.get(code);
+    if (room && room.size > 0) {
+      socket.join(code);
+      console.log(`Socket ${socket.id} joined room: ${code}`);
+      callback({ success: true });
+    } else {
+      callback({ success: false, message: "Invalid Code or Room not found" });
+    }
+  });
+
+  // Legacy support or direct join (kept for compatibility or testing if needed, but modified)
   socket.on('join', (room) => {
     socket.join(room);
     console.log(`Socket ${socket.id} joined room: ${room}`);
   });
 
-  // 转发所有信令数据
+  // Forward signals
   socket.on('signal', (data) => {
-    // data 预期结构: { room: 'xxx', type: 'offer/answer/candidate', payload: ... }
     const { room, type, payload } = data;
     console.log(`Relaying ${type} to room ${room}`);
     socket.to(room).emit('signal', {
