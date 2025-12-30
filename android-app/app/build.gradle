@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.example.remotecontrol'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.example.remotecontrol"
+        minSdk 24
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.10.1'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.9.0'
+    
+    // WebRTC 依赖
+    implementation 'org.webrtc:google-webrtc:1.0.32006'
+    
+    // Socket.io 依赖
+    implementation ('io.socket:socket.io-client:2.1.0') {
+        exclude group: 'org.json', module: 'json'
+    }
+}

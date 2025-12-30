@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Mock Phone (Controlled Device)</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            color: #fff;
+            font-family: sans-serif;
+            overflow: hidden;
+        }
+
+        #status {
+            position: fixed;
+            top: 10;
+            left: 10;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px;
+            z-index: 100;
+        }
+
+        #click-indicator {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: red;
+            border-radius: 50%;
+            display: none;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            transition: opacity 0.5s;
+            z-index: 99;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="status">Status: Disconnected. <button id="startBtn">Start "Phone" Stream</button></div>
+    <div id="click-indicator"></div>
+
+    <div style="padding: 50px; text-align: center;">
+        <h1>这是“模拟手机”屏幕</h1>
+        <p>当你在控制端点击时，这里会出现红点。</p>
+        <div style="border: 2px solid #555; padding: 20px; display: inline-block;">
+            <button onclick="alert('你点击了伪手机上的按钮！')">可点击测试按钮</button>
+        </div>
+    </div>
+
+    <script>
+        const SIGNAL_SERVER = 'http://localhost:3000'; // 或者你的 cpolar URL
+        const ROOM_ID = 'phone_remote_control';
+        const socket = io(SIGNAL_SERVER, { auth: { token: 'your_secret_password' } });
+        let pc;
+
+        socket.on('connect', () => {
+            document.getElementById('status').innerText = 'Status: Connected to Server. Click Start.';
+            socket.emit('join', ROOM_ID);
+        });
+
+        socket.on('signal', async (data) => {
+            if (data.type === 'answer') {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+            } else if (data.type === 'candidate') {
+                await pc.addIceCandidate(new RTCIceCandidate(data.payload));
+            } else if (data.type === 'control') {
+                showVisualClick(data.payload);
+            }
+        });
+
+        async function startStream() {
+            pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+            const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+            stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+            pc.onicecandidate = (e) => {
+                if (e.candidate) socket.emit('signal', { room: ROOM_ID, type: 'candidate', payload: e.candidate });
+            };
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit('signal', { room: ROOM_ID, type: 'offer', payload: offer });
+            document.getElementById('status').innerText = 'Status: Streaming...';
+        }
+
+        function showVisualClick(payload) {
+            if (payload.action === 'click') {
+                const indicator = document.getElementById('click-indicator');
+                indicator.style.left = (payload.x * 100) + '%';
+                indicator.style.top = (payload.y * 100) + '%';
+                indicator.style.display = 'block';
+                indicator.style.opacity = '1';
+                setTimeout(() => { indicator.style.opacity = '0'; }, 500);
+                console.log('Received click at:', payload.x, payload.y);
+            } else {
+                alert('Received System Action: ' + payload.action);
+            }
+        }
+
+        document.getElementById('startBtn').onclick = startStream;
+    </script>
+</body>
+
+</html>
