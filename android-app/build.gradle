@@ -14,7 +14,9 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-        jcenter() // Required for org.webrtc:google-webrtc:1.0.32000
+        // WebRTC repository for google-webrtc library
+        maven { url 'https://maven.webrtc.org' }
+        // JitPack for other dependencies
         maven { url 'https://jitpack.io' }
     }
 }
