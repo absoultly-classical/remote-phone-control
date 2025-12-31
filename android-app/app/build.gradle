@@ -35,8 +35,8 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.9.0'
     
-    // WebRTC 依赖
-    implementation 'org.webrtc:google-webrtc:1.0.32006'
+    // WebRTC 依赖 (使用本地下载的 AAR)
+    implementation files('libs/google-webrtc-1.0.32006.aar')
     
     // Socket.io 依赖
     implementation ('io.socket:socket.io-client:2.1.0') {

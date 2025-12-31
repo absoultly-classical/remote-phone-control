@@ -65,13 +65,13 @@ class MainActivity : AppCompatActivity() {
             mSocket.on(Socket.EVENT_CONNECT) {
                 runOnUiThread { statusText.text = "Status: Connected" }
                 // Request a code
-                mSocket.emit("create_code") { args ->
+                mSocket.emit("create_code", io.socket.client.Ack { args ->
                     if (args.isNotEmpty()) {
                         val data = args[0] as JSONObject
                         val code = data.getString("code")
                         runOnUiThread { codeText.text = "Code: $code" }
                     }
-                }
+                })
             }
 
             mSocket.on(Socket.EVENT_DISCONNECT) {

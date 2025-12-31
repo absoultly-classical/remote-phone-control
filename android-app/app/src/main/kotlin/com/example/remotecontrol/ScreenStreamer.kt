@@ -18,7 +18,7 @@ class ScreenStreamer(
     private var videoSource: VideoSource? = null
     private var capturer: VideoCapturer? = null
 
-    fun startStreaming(pc: RTCPeerConnection) {
+    fun startStreaming(pc: PeerConnection) {
         val helper = SurfaceTextureHelper.create("ScreenCaptureThread", EglBase.create().eglBaseContext)
         
         // 创建屏幕捕捉器
@@ -44,7 +44,7 @@ class ScreenStreamer(
 // 模拟 Android Activity 或 Service 中的 Socket 处理逻辑
 class RemoteControlManager(val socket: io.socket.client.Socket, val accessibilityService: com.example.remotecontrol.service.RemoteControlAccessibilityService) {
     init {
-        socket.on("signal") { args ->
+        socket.on("signal") { args: Array<Any> ->
             val data = args[0] as org.json.JSONObject
             val type = data.getString("type")
             val payload = data.get("payload")

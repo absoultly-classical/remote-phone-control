@@ -1,66 +1,70 @@
-# Remote Phone Control (Web RTC)
+# Remote Phone Control (WebRTC) �💻
 
-本项目实现了一个简单的远程控制系统，支持通过 Web 浏览器控制 Android 手机。
+这是一个功能完整的远程手机控制系统。你可以直接使用本项目提供的 **预编译 APK** 安装到 Android 手机，然后按照以下步骤部署你的专属控制中心（Web 端）。
 
-## 目录结构
-*   `/server`: Node.js 信令服务器
-*   `/web-client`: React 控制端（Vite + TS）
-*   `/android-app`: Android 受控端（核心 Kotlin 代码示例）
+---
 
-## 快速开始 (跨网段控制)
+## 🚀 快速上手 (只需 3 步)
 
-### 1. 启动信令服务器
+### 第一步：安装 Android 受控端
+1.  进入项目根目录的 [`/release`](./release) 文件夹。
+2.  下载并安装 `RemoteControl-v1.0.apk` 到你的 Android 手机。
+3.  **权限授予（至关重要）**:
+    *   打开 App，点击 **Start Remote Control** 并允许屏幕录制权限。
+    *   前往手机 **设置 -> 辅助功能 (无障碍) -> 已安装的服务**。
+    *   找到并开启 **RemoteControl** 服务（这样电脑端才能模拟点击）。
+
+### 第二步：部署控制中心 (Server & Web)
+你需要一台有 Node.js 环境的电脑来运行控制端。
+
+#### 1. 启动信令服务器 (Signaling Server)
 ```bash
 cd server
-npm start # 默认运行在 3000 端口
+npm install
+npm start 
 ```
+*   默认运行在 `3000` 端口。它负责中转指令和建立 WebRTC 连接。
 
-### 2. 内网穿透 (重要)
-快速上手步骤（以 cpolar 为例）：
-1. 下载与安装
-去 cpolar 官网 注册一个账号。
-下载 Windows 版本的客户端并安装。
-2. 授权认证
-安装完成后，打开终端（CMD 或 PowerShell），输入你账号里提供的 authtoken（在 cpolar 官网后台可以获取）：
-
-powershell
-cpolar authtoken [你的Token]
-3. 启动穿透
-因为我们的信令服务器运行在 3000 端口，所以输入：
-
-powershell
-cpolar http 3000
-4. 获取公网地址
-输入命令后，你会看到类似这样的界面：
-
-
-Forwarding http://xxxxxx.cpolar.cn -> http://localhost:3000
-Forwarding https://xxxxxx.cpolar.cn -> http://localhost:3000
-这里的 http://xxxxxx.cpolar.cn 就是你的公网临时地址。
-
-由于没有云服务器，需要将本地 3000 端口映射到公网。可以使用 `cpolar`:
-```bash
-cpolar http 3000
-```
-记录下生成的公网 URL (例如: `http://xxxx.cpolar.cn`)。
-
-### 3. 配置并启动 Web 客户端
-修改 `web-client/src/App.tsx` 中的 `SIGNAL_SERVER` 为你的公网 URL。
+#### 2. 启动控制网页 (Web Client)
 ```bash
 cd web-client
+npm install
 npm run dev
 ```
+*   访问终端提供的地址（通常是 `http://localhost:5173`）即可看到控制界面。
 
-### 4. 部署 Android 端
-1. 将 `android-app` 中的核心代码集成到 Android Studio 项目。
-2. 确保在 `AndroidManifest.xml` 中注册 `AccessibilityService`。
-3. 赋予录屏权限和无障碍服务权限。
+### 第三步：建立连接
+1.  确保手机和电脑在同一个网络，或者使用下方的**内网穿透**方案。
+2.  在手机 App 界面查看显示的 **Code**。
+3.  在 Web 界面输入该 Code，点击 **Connect** 即可看到手机画面并进行远程操作！
 
-## 功能说明
-*   **实时屏幕:** 采用 WebRTC 低延迟视频流。
-*   **点击同步:** 网页端点击视频画面，手机端自动执行模拟点击。
-*   **系统按键:** 支持模拟 Home、Back、Recents 按键。
+---
 
-## 注意事项
-- Android 端务必开启“无障碍服务”权限，否则无法执行点击。
-- WebRTC 首次连接可能需要几秒钟进行 ICE 握手。
+## 🌐 远程控制 (不在同一个 WiFi 怎么办？)
+
+如果你想在公司控制家里的手机，可以使用 `cpolar` 进行内网穿透：
+
+1.  启动穿透：`cpolar http 3000`。
+2.  获取生成的公网 URL（例如 `https://xxxx.cpolar.top`）。
+3.  **更新地址**:
+    *   **Android 端**: 开发者需修改 `MainActivity.kt` 中的 `SERVER_URL` 并重新打包（本项目 release 默认为本地测试版）。
+    *   **Web 端**: 修改 `web-client/src/App.tsx` 中的 `SIGNAL_SERVER`。
+
+---
+
+## � 目录结构说明
+*   [`/release`](./release): 存放已编译好的安装包，下载即用。
+*   `/server`: Node.js 信令服务器源代码。
+*   `/web-client`: React 控制端前端代码。
+*   `/android-app`: Android 端完整源码（供开发者参考或二次开发）。
+
+## 🔒 安全性
+*   项目内置了简单的 **Auth Token** 验证。
+*   默认 Token 为 `your_secret_password`。你可以在 `server/index.js` 和 Web 端的配置中自行修改。
+
+## ⚠️ 注意事项
+*   **网络延迟**: 画面传输质量取决于你的网络带宽。
+*   **兼容性**: 模拟点击功能依赖 Android 无障碍服务，部分手机系统（如小米、华为）可能需要额外在权限管理中开启“后台弹出界面”或“允许模拟点击”。
+
+---
+如果有任何问题，欢迎提交 Issue 或二次开发！

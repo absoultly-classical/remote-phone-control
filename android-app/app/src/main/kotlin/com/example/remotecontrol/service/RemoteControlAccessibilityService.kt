@@ -35,7 +35,5 @@ class RemoteControlAccessibilityService : AccessibilityService() {
     }
 
     // 执行全局按键（Home, Back等）
-    fun performGlobalAction(actionId: Int) {
-        performGlobalAction(actionId)
-    }
+
 }
