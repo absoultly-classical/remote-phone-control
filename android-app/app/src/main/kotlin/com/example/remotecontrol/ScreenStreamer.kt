@@ -9,9 +9,11 @@ package com.example.remotecontrol
 
 import android.media.projection.MediaProjection
 import org.webrtc.*
+import com.example.remotecontrol.service.RemoteControlAccessibilityService
+import io.socket.client.Socket
 
 class ScreenStreamer(
-    private val mediaProjection: MediaProjection,
+    private val mediaProjectionData: Intent,
     private val peerConnectionFactory: PeerConnectionFactory
 ) {
     private var localVideoTrack: VideoTrack? = null
@@ -21,8 +23,13 @@ class ScreenStreamer(
     fun startStreaming(pc: PeerConnection) {
         val helper = SurfaceTextureHelper.create("ScreenCaptureThread", EglBase.create().eglBaseContext)
         
-        // 创建屏幕捕捉器
-        capturer = ScreenCapturerAndroid(null, object : MediaProjection.Callback() {})
+        // 使用 Intent 正确初始化屏幕捕捉器
+        capturer = ScreenCapturerAndroid(mediaProjectionData, object : MediaProjection.Callback() {
+            override fun onStop() {
+                super.onStop()
+                android.util.Log.d("RemoteControl", "MediaProjection stopped")
+            }
+        })
         
         videoSource = peerConnectionFactory.createVideoSource(capturer!!.isScreencast)
         capturer?.initialize(helper, null, videoSource?.capturerObserver)
@@ -38,35 +45,42 @@ class ScreenStreamer(
         capturer?.stopCapture()
         capturer?.dispose()
         videoSource?.dispose()
+        localVideoTrack?.dispose()
     }
 }
 
-// 模拟 Android Activity 或 Service 中的 Socket 处理逻辑
-class RemoteControlManager(val socket: io.socket.client.Socket, val accessibilityService: com.example.remotecontrol.service.RemoteControlAccessibilityService) {
+// 核心：处理控制消息并调用无障碍服务
+class RemoteControlManager(val socket: io.socket.client.Socket) {
     init {
         socket.on("signal") { args: Array<Any> ->
             val data = args[0] as org.json.JSONObject
             val type = data.getString("type")
-            val payload = data.get("payload")
-
+            
             if (type == "control") {
-                handleControlMessage(payload as org.json.JSONObject)
+                val payload = data.getJSONObject("payload")
+                handleControlMessage(payload)
             }
             // 处理 RTC 信令 (answer, candidate) ...
         }
     }
 
     private fun handleControlMessage(payload: org.json.JSONObject) {
+        val service = RemoteControlAccessibilityService.instance
+        if (service == null) {
+            android.util.Log.w("RemoteControl", "Accessibility Service not running!")
+            return
+        }
+
         val action = payload.getString("action")
         when (action) {
             "click" -> {
                 val x = payload.getDouble("x").toFloat()
                 val y = payload.getDouble("y").toFloat()
-                accessibilityService.performClick(x, y)
+                service.performClick(x, y)
             }
-            "home" -> accessibilityService.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
-            "back" -> accessibilityService.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            "home" -> service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+            "back" -> service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            "recents" -> service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS)
         }
     }
 }
-

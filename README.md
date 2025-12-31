@@ -1,70 +1,64 @@
-# Remote Phone Control (WebRTC) �💻
+# Remote Phone Control (Universal Platform) 📱💻
 
-这是一个功能完整的远程手机控制系统。你可以直接使用本项目提供的 **预编译 APK** 安装到 Android 手机，然后按照以下步骤部署你的专属控制中心（Web 端）。
-
----
-
-## 🚀 快速上手 (只需 3 步)
-
-### 第一步：安装 Android 受控端
-1.  进入项目根目录的 [`/release`](./release) 文件夹。
-2.  下载并安装 `RemoteControl-v1.0.apk` 到你的 Android 手机。
-3.  **权限授予（至关重要）**:
-    *   打开 App，点击 **Start Remote Control** 并允许屏幕录制权限。
-    *   前往手机 **设置 -> 辅助功能 (无障碍) -> 已安装的服务**。
-    *   找到并开启 **RemoteControl** 服务（这样电脑端才能模拟点击）。
-
-### 第二步：部署控制中心 (Server & Web)
-你需要一台有 Node.js 环境的电脑来运行控制端。
-
-#### 1. 启动信令服务器 (Signaling Server)
-```bash
-cd server
-npm install
-npm start 
-```
-*   默认运行在 `3000` 端口。它负责中转指令和建立 WebRTC 连接。
-
-#### 2. 启动控制网页 (Web Client)
-```bash
-cd web-client
-npm install
-npm run dev
-```
-*   访问终端提供的地址（通常是 `http://localhost:5173`）即可看到控制界面。
-
-### 第三步：建立连接
-1.  确保手机和电脑在同一个网络，或者使用下方的**内网穿透**方案。
-2.  在手机 App 界面查看显示的 **Code**。
-3.  在 Web 界面输入该 Code，点击 **Connect** 即可看到手机画面并进行远程操作！
+这是一个**零代码改动**的通用远程手机控制方案。你只需要下载预编译的 APK，配合你自己的服务器，即可实现手机的远程控制，无需修改任何代码。
 
 ---
 
-## 🌐 远程控制 (不在同一个 WiFi 怎么办？)
+## 🚀 快速上手 (无需编程)
 
-如果你想在公司控制家里的手机，可以使用 `cpolar` 进行内网穿透：
+### 第一步：准备服务器 (Control Center)
+你可以用自己的电脑作为中转节点。
+1.  **运行信令服务器**:
+    ```bash
+    cd server
+    npm install
+    npm start 
+    ```
+2.  **开启内网穿透** (如使用 `cpolar`):
+    ```bash
+    cpolar http 3000
+    ```
+    记录生成的公网地址 (例如 `https://xxxx.cpolar.top`)。
 
-1.  启动穿透：`cpolar http 3000`。
-2.  获取生成的公网 URL（例如 `https://xxxx.cpolar.top`）。
-3.  **更新地址**:
-    *   **Android 端**: 开发者需修改 `MainActivity.kt` 中的 `SERVER_URL` 并重新打包（本项目 release 默认为本地测试版）。
-    *   **Web 端**: 修改 `web-client/src/App.tsx` 中的 `SIGNAL_SERVER`。
+### 第二步：部署 Web 控制端
+为了方便，你可以直接本地运行 Web 端：
+1.  **启动 Web 端**:
+    ```bash
+    cd web-client
+    npm install
+    npm run dev
+    ```
+2.  在浏览器打开显示的地址，在 **1. Server Setup** 区域填写 **Server URL** 和手机上显示的 **Device ID**。
+3.  点击 **Connect to Server**，直到状态显示 `Server Connected`。
+
+### 第三步：安装并运行手机 App (v1.6 稳定修复版)
+1.  从项目根目录的 [`/release`](./release) 文件夹下载并安装 `RemoteControl-Universal-v1.6.apk`。
+2.  **一键连接**:
+    *   打开 App，填入你的 **Server URL**（如 cpolar 地址或局域网 IP）。
+    *   点击 **Connect to Server**。App 会自动生成并显示一个 **Device ID** (如 `RC-A1B2`) 和一个 **Pairing Code**。
+3.  **权限开启**:
+    *   点击 **Start Media Projection** 开启录屏。
+    *   前往设置开启 **RemoteControl 无障碍服务**。
+
+> [!IMPORTANT]
+> **小米/OPPO/VIVO 用户注意**：
+> 如果点击“开启录制”后没反应，或者网页端看不到画面，请前往：**手机设置 -> 应用管理 -> RemoteControl -> 权限管理**，务必开启 **“后台弹出界面”** 或 **“在后台启动界面”** 权限。
+
+### 第四步：开始控制
+1.  回到 Web 端，在 **2. Device Pairing** 区域输入手机显示的 6 位 Code。
+2.  点击 **Pair**，连接成功后即可进行远程操作。
 
 ---
 
-## � 目录结构说明
-*   [`/release`](./release): 存放已编译好的安装包，下载即用。
-*   `/server`: Node.js 信令服务器源代码。
-*   `/web-client`: React 控制端前端代码。
-*   `/android-app`: Android 端完整源码（供开发者参考或二次开发）。
+## 🌟 为什么选择通用版？
+*   **零编译**: 你不需要安装 Android Studio 或配置 Java 环境，下载 APK 就能用。
+*   **私有化**: 服务器地址和连接密码完全由你控制，数据不经过第三方。
+*   **灵活切换**: 随时更换穿透地址，只需在 App 和网页上重新填写，无需重新打包。
 
-## 🔒 安全性
-*   项目内置了简单的 **Auth Token** 验证。
-*   默认 Token 为 `your_secret_password`。你可以在 `server/index.js` 和 Web 端的配置中自行修改。
-
-## ⚠️ 注意事项
-*   **网络延迟**: 画面传输质量取决于你的网络带宽。
-*   **兼容性**: 模拟点击功能依赖 Android 无障碍服务，部分手机系统（如小米、华为）可能需要额外在权限管理中开启“后台弹出界面”或“允许模拟点击”。
+## 📁 核心目录
+*   [`/release`](./release): 存放通用版 APK 安装包。
+*   `/server`: 轻量级中转服务器，支持动态 Token 匹配。
+*   `/web-client`: 响应式控制界面，支持配置持久化。
 
 ---
-如果有任何问题，欢迎提交 Issue 或二次开发！
+Enjoy your remote control experience! 🚀

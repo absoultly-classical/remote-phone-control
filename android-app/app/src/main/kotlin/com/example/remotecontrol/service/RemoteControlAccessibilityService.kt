@@ -8,6 +8,21 @@ import android.util.Log
 
 class RemoteControlAccessibilityService : AccessibilityService() {
 
+    companion object {
+        var instance: RemoteControlAccessibilityService? = null
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        Log.d("RemoteControl", "Accessibility Service Connected")
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        instance = null
+        return super.onUnbind(intent)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
     override fun onInterrupt() {}
@@ -29,11 +44,12 @@ class RemoteControlAccessibilityService : AccessibilityService() {
         dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
                 super.onCompleted(gestureDescription)
-                Log.d("RemoteControl", "Gesture completed")
             }
         }, null)
     }
 
     // 执行全局按键（Home, Back等）
-
+    fun performAction(action: Int) {
+        performGlobalAction(action)
+    }
 }

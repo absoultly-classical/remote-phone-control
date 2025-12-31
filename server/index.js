@@ -14,16 +14,7 @@ const io = new Server(server, {
   }
 });
 
-const AUTH_TOKEN = 'your_secret_password'; // 建议通过环境变量设置
-
-io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
-  if (token === AUTH_TOKEN) {
-    next();
-  } else {
-    next(new Error("Authentication error"));
-  }
-});
+const roomTokens = new Map(); // 用于存储每个房间对应的验证令牌
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
@@ -31,18 +22,30 @@ io.on('connection', (socket) => {
   // Generate a random 6-digit code
   socket.on('create_code', (callback) => {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const token = socket.handshake.auth.token; // 获取创建者提供的 Token
+
     socket.join(code);
-    console.log(`Socket ${socket.id} created room: ${code}`);
+    roomTokens.set(code, token); // 建立房间与 Token 的绑定关系
+
+    console.log(`Socket ${socket.id} created room: ${code} with token: ${token}`);
     callback({ code });
   });
 
   // Verify and join an existing room
   socket.on('join_code', (code, callback) => {
     const room = io.sockets.adapter.rooms.get(code);
+    const clientToken = socket.handshake.auth.token; // 获取加入者提供的 Token
+    const storedToken = roomTokens.get(code); // 获取房间预设的 Token
+
     if (room && room.size > 0) {
-      socket.join(code);
-      console.log(`Socket ${socket.id} joined room: ${code}`);
-      callback({ success: true });
+      if (clientToken === storedToken) {
+        socket.join(code);
+        console.log(`Socket ${socket.id} joined room: ${code}`);
+        callback({ success: true });
+      } else {
+        console.warn(`Auth failed for room ${code}: tokens do not match`);
+        callback({ success: false, message: "Security Token Mismatch" });
+      }
     } else {
       callback({ success: false, message: "Invalid Code or Room not found" });
     }
