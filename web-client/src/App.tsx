@@ -11,6 +11,8 @@ const App: React.FC = () => {
   const [roomId, setRoomId] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const roomIdRef = useRef<string | null>(null); // 用于在异步回调中获取最新的 roomId
+  const remoteStreamRef = useRef<MediaStream | null>(null); // 保存远程流引用
 
   // Step 1: Initialize connection to the signaling server
   const initializeServerConnection = () => {
@@ -73,6 +75,7 @@ const App: React.FC = () => {
       if (response.success) {
         setStatus('Paired with device');
         setRoomId(inputCode);
+        roomIdRef.current = inputCode; // 同步更新 ref
         // Trigger the phone to start the WebRTC handshake
         socketRef.current?.emit('signal', {
           room: inputCode,
@@ -91,15 +94,51 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // 当进入流媒体视图时，确保视频元素连接到流
+  useEffect(() => {
+    if (roomId && videoRef.current && remoteStreamRef.current) {
+      console.log('Re-attaching stream after view change');
+      videoRef.current.srcObject = remoteStreamRef.current;
+    }
+  }, [roomId]);
+
   const initPeerConnection = () => {
+    console.log('Initializing PeerConnection...');
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        // Open Relay TURN 服务器（免费公共服务）
+        {
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        // TURNS (TLS/SSL) - 更可靠，可穿透严格防火墙
+        {
+          urls: 'turns:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        }
+      ],
+      iceCandidatePoolSize: 10
     });
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && roomId) {
+      if (event.candidate && roomIdRef.current) {
+        console.log('Sending ICE candidate');
         socketRef.current?.emit('signal', {
-          room: roomId,
+          room: roomIdRef.current,
           type: 'candidate',
           payload: event.candidate
         });
@@ -107,9 +146,23 @@ const App: React.FC = () => {
     };
 
     pc.ontrack = (event) => {
-      if (videoRef.current) {
-        videoRef.current.srcObject = event.streams[0];
+      console.log('ontrack event received!', event.streams);
+      if (event.streams[0]) {
+        remoteStreamRef.current = event.streams[0];
+        console.log('Stored remote stream');
+        if (videoRef.current) {
+          console.log('Attaching stream to video element');
+          videoRef.current.srcObject = event.streams[0];
+        }
       }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE connection state:', pc.iceConnectionState);
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('Connection state:', pc.connectionState);
     };
 
     pcRef.current = pc;
@@ -117,17 +170,22 @@ const App: React.FC = () => {
   };
 
   const handleOffer = async (offer: RTCSessionDescriptionInit) => {
+    console.log('Received offer, creating answer...');
     const pc = initPeerConnection();
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    if (roomId) {
+    const currentRoom = roomIdRef.current;
+    console.log('Sending answer to room:', currentRoom);
+    if (currentRoom) {
       socketRef.current?.emit('signal', {
-        room: roomId,
+        room: currentRoom,
         type: 'answer',
         payload: answer
       });
+    } else {
+      console.error('Cannot send answer: roomIdRef.current is null');
     }
     setStatus('Streaming...');
   };
