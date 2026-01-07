@@ -59,6 +59,12 @@
 *   [`/release`](./release): 存放通用版 APK 安装包。
 *   `/server`: 轻量级中转服务器，支持动态 Token 匹配。
 *   `/web-client`: 响应式控制界面，支持配置持久化。
+*   [`/android-app`](./android-app): Android 客户端源码，详见 [编译指南](./android-app/README.md)。
+
+---
+
+## 🛠️ 编译与开发
+如果你需要修改代码或自己编译 APK，请参考 [Android 编译指南](./android-app/README.md)。
 
 ---
 Enjoy your remote control experience! 🚀

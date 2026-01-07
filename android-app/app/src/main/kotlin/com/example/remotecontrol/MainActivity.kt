@@ -30,6 +30,14 @@ class MainActivity : AppCompatActivity() {
     private var screenStreamer: ScreenStreamer? = null
     private var controlManager: RemoteControlManager? = null
 
+    // 如果在收到 request_offer 时还没有录屏授权，先记下 sender，待授权后再发起握手
+    private var pendingWebClientId: String? = null
+
+    // 本地预览相关
+    private var wantLocalPreview: Boolean = false
+    private lateinit var previewRenderer: SurfaceViewRenderer
+    private lateinit var rootEglBase: EglBase
+
     private val PREFS_NAME = "RemoteControlPrefs"
     private val KEY_SERVER_URL = "server_url"
     private val KEY_DEVICE_ID = "device_id"
@@ -37,13 +45,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
+        // 初始化文件日志
+        FileLogger.init(this)
+        FileLogger.writeLine("MainActivity onCreate")
+
         // 0. Initialize WebRTC
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(this)
                 .setEnableInternalTracer(true)
                 .createInitializationOptions()
         )
+        // 初始化本地渲染用的 EGL 上下文
+        rootEglBase = EglBase.create()
 
         val deviceId = getOrGenerateDeviceId()
 
@@ -80,7 +94,20 @@ class MainActivity : AppCompatActivity() {
             gravity = android.view.Gravity.CENTER
         }
 
-        val startStreamBtn = Button(this).apply { text = "Start Media Projection" }
+        val startStreamBtn = Button(this).apply { text = "Start Media Projection (with Web)" }
+        val localPreviewBtn = Button(this).apply { text = "Local Preview (No Server)" }
+
+        // 创建本地预览渲染器
+        previewRenderer = SurfaceViewRenderer(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        }
+        previewRenderer.init(rootEglBase.eglBaseContext, null)
+        previewRenderer.setEnableHardwareScaler(true)
+        previewRenderer.setMirror(false)
 
         layout.addView(TextView(this).apply { text = "1. Server Address:" })
         layout.addView(urlEdit)
@@ -88,9 +115,13 @@ class MainActivity : AppCompatActivity() {
         layout.addView(connectBtn)
         layout.addView(codeText)
         layout.addView(statusText)
-        layout.addView(android.view.View(this).apply { layoutParams = LinearLayout.LayoutParams(1, 80) })
-        layout.addView(TextView(this).apply { text = "2. Controls:" })
+        // 预览区域
+        layout.addView(TextView(this).apply { text = "2. Local Preview:" })
+        layout.addView(previewRenderer)
+        layout.addView(android.view.View(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) })
+        layout.addView(TextView(this).apply { text = "3. Controls:" })
         layout.addView(startStreamBtn)
+        layout.addView(localPreviewBtn)
         setContentView(layout)
 
         projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -109,8 +140,22 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // 远程控制用的录屏授权（需要 Web 端参与）
         startStreamBtn.setOnClickListener {
+            // Android 14 适配：先启动服务，确保应用处于 FGS 状态，再弹出授权框
+            startMediaProjectionService()
             startActivityForResult(projectionManager.createScreenCaptureIntent(), 100)
+        }
+
+        // 仅本机预览
+        localPreviewBtn.setOnClickListener {
+            startMediaProjectionService()
+            if (projectionIntent == null) {
+                wantLocalPreview = true
+                startActivityForResult(projectionManager.createScreenCaptureIntent(), 100)
+            } else {
+                startLocalPreview()
+            }
         }
     }
 
@@ -139,11 +184,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun initSocket(serverUrl: String, deviceId: String) {
         try {
+            FileLogger.writeLine("initSocket called, serverUrl=$serverUrl, deviceId=$deviceId")
             var finalUrl = serverUrl
             if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
                 finalUrl = "http://$finalUrl"
             }
 
+            FileLogger.writeLine("Connecting to signaling server: $finalUrl")
             statusText.text = "Status: Connecting to $finalUrl..."
             connectBtn.isEnabled = false // 防止重复点击
             
@@ -152,6 +199,7 @@ class MainActivity : AppCompatActivity() {
             mSocket = IO.socket(finalUrl, opts)
 
             mSocket.on(Socket.EVENT_CONNECT) {
+                FileLogger.writeLine("Socket EVENT_CONNECT")
                 runOnUiThread { 
                     statusText.text = "Status: Server Connected"
                     connectBtn.text = "Disconnect"
@@ -161,6 +209,7 @@ class MainActivity : AppCompatActivity() {
                     if (args.isNotEmpty()) {
                         val data = args[0] as? JSONObject
                         val code = data?.optString("code", "-") ?: "-"
+                        FileLogger.writeLine("Received pairing code from server: $code")
                         runOnUiThread { codeText.text = "Pairing Code: $code" }
                     }
                 })
@@ -170,13 +219,23 @@ class MainActivity : AppCompatActivity() {
                 val data = args[0] as? JSONObject ?: return@on
                 val type = data.optString("type")
                 val sender = data.optString("sender")
+                FileLogger.writeLine("Received signal: type=$type, sender=$sender")
 
                 when (type) {
                     "request_offer" -> {
+                        FileLogger.writeLine("Handling request_offer from sender=$sender")
                         runOnUiThread { statusText.text = "Status: Pairing..." }
-                        startWebrtcHandshake(sender)
+                        // 如果还没有录屏授权，先记录下来，等用户点“Start Media Projection”授权后自动发起握手
+                        if (projectionIntent == null) {
+                            pendingWebClientId = sender
+                            FileLogger.writeLine("projectionIntent is null, pendingWebClientId set, wait for user to grant screen capture")
+                        } else {
+                            pendingWebClientId = null
+                            startWebrtcHandshake(sender)
+                        }
                     }
                     "answer" -> {
+                        FileLogger.writeLine("Received answer from web client")
                         val payload = data.optJSONObject("payload") ?: return@on
                         val sdp = SessionDescription(SessionDescription.Type.ANSWER, payload.optString("sdp"))
                         peerConnection?.setRemoteDescription(object : SdpObserver {
@@ -187,6 +246,7 @@ class MainActivity : AppCompatActivity() {
                         }, sdp)
                     }
                     "candidate" -> {
+                        FileLogger.writeLine("Received ICE candidate from web client")
                         val payload = data.optJSONObject("payload") ?: return@on
                         val candidate = IceCandidate(
                             payload.optString("sdpMid"),
@@ -199,6 +259,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             mSocket.on(Socket.EVENT_DISCONNECT) {
+                FileLogger.writeLine("Socket EVENT_DISCONNECT")
                 runOnUiThread { 
                     statusText.text = "Status: Disconnected"
                     connectBtn.text = "Connect to Server"
@@ -209,6 +270,7 @@ class MainActivity : AppCompatActivity() {
             
             mSocket.on(Socket.EVENT_CONNECT_ERROR) { args: Array<Any> ->
                 val err = if (args.isNotEmpty()) args[0].toString() else "Unknown Error"
+                FileLogger.writeLine("Socket EVENT_CONNECT_ERROR: $err")
                 runOnUiThread { 
                     statusText.text = "Error: $err"
                     connectBtn.text = "Retry Connect"
@@ -218,9 +280,11 @@ class MainActivity : AppCompatActivity() {
             }
             
             mSocket.connect()
+            FileLogger.writeLine("Socket connect() invoked")
             controlManager = RemoteControlManager(mSocket)
 
         } catch (e: Exception) {
+            FileLogger.writeLine("initSocket exception: ${e.message}")
             runOnUiThread { 
                 statusText.text = "Error: ${e.message}"
                 connectBtn.isEnabled = true
@@ -230,26 +294,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startWebrtcHandshake(webClientId: String) {
+        FileLogger.writeLine("startWebrtcHandshake called, webClientId=$webClientId")
         if (projectionIntent == null) {
+            FileLogger.writeLine("startWebrtcHandshake aborted: projectionIntent is null")
             runOnUiThread { android.widget.Toast.makeText(this, "Please start Media Projection first!", android.widget.Toast.LENGTH_SHORT).show() }
             return
         }
 
-        // Start Foreground Service for MediaProjection (Required for Android 10+)
-        val serviceIntent = Intent(this, com.example.remotecontrol.service.MediaProjectionService::class.java)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-
-        // Initialize Factory if needed
-        if (peerConnectionFactory == null) {
-            val options = PeerConnectionFactory.Options()
-            peerConnectionFactory = PeerConnectionFactory.builder()
-                .setOptions(options)
-                .createPeerConnectionFactory()
-        }
+        ensurePeerConnectionFactory()
 
         // Create PeerConnection
         val iceServers = listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
@@ -284,14 +336,17 @@ class MainActivity : AppCompatActivity() {
             override fun onStandardizedIceConnectionChange(state: PeerConnection.IceConnectionState?) {}
         })
 
-        // Add Video Track
-        screenStreamer = ScreenStreamer(projectionIntent!!, peerConnectionFactory!!)
+        // Add Video Track 并附加到本机预览
+        FileLogger.writeLine("Creating ScreenStreamer and starting capture (with WebRTC)")
+        screenStreamer = ScreenStreamer(this, projectionIntent!!, peerConnectionFactory!!, rootEglBase.eglBaseContext)
         screenStreamer!!.startStreaming(peerConnection!!)
+        screenStreamer!!.attachPreview(previewRenderer)
 
         // Create Offer
         peerConnection!!.createOffer(object : SdpObserver {
             override fun onCreateSuccess(desc: SessionDescription?) {
                 if (desc == null) return
+                FileLogger.writeLine("createOffer onCreateSuccess, sdp length=${desc.description.length}")
                 peerConnection!!.setLocalDescription(this, desc)
                 val payload = JSONObject().apply {
                     put("type", "offer")
@@ -303,24 +358,95 @@ class MainActivity : AppCompatActivity() {
                     put("payload", payload)
                 })
                 runOnUiThread { statusText.text = "Status: Streaming..." }
+                FileLogger.writeLine("Offer sent to room, enter Streaming state")
             }
-            override fun onCreateFailure(s: String?) { android.util.Log.e("WebRTC", "Create Offer Failed: $s") }
+            override fun onCreateFailure(s: String?) {
+                android.util.Log.e("WebRTC", "Create Offer Failed: $s")
+                FileLogger.writeLine("createOffer onCreateFailure: $s")
+            }
             override fun onSetSuccess() {}
-            override fun onSetFailure(s: String?) { android.util.Log.e("WebRTC", "Set Local SDP Failed: $s") }
+            override fun onSetFailure(s: String?) {
+                android.util.Log.e("WebRTC", "Set Local SDP Failed: $s")
+                FileLogger.writeLine("setLocalDescription onSetFailure: $s")
+            }
         }, MediaConstraints())
+    }
+
+    // 仅本机预览使用：不创建 PeerConnection，只采集 + 显示在本地
+    private fun startLocalPreview() {
+        if (projectionIntent == null) {
+            FileLogger.writeLine("startLocalPreview aborted: projectionIntent is null")
+            return
+        }
+        FileLogger.writeLine("startLocalPreview called")
+        ensurePeerConnectionFactory()
+        screenStreamer = ScreenStreamer(this, projectionIntent!!, peerConnectionFactory!!, rootEglBase.eglBaseContext)
+        screenStreamer!!.startStreaming(null)
+        screenStreamer!!.attachPreview(previewRenderer)
+        runOnUiThread {
+            statusText.text = "Status: Local Preview Running"
+        }
+    }
+
+    private fun ensurePeerConnectionFactory() {
+        if (peerConnectionFactory == null) {
+            FileLogger.writeLine("Creating PeerConnectionFactory with Encoder/Decoder factories")
+            
+            val encoderFactory = DefaultVideoEncoderFactory(rootEglBase.eglBaseContext, true, true)
+            val decoderFactory = DefaultVideoDecoderFactory(rootEglBase.eglBaseContext)
+
+            peerConnectionFactory = PeerConnectionFactory.builder()
+                .setVideoEncoderFactory(encoderFactory)
+                .setVideoDecoderFactory(decoderFactory)
+                .createPeerConnectionFactory()
+            FileLogger.writeLine("PeerConnectionFactory created successfully")
+        }
+    }
+
+    private fun startMediaProjectionService() {
+        try {
+            val serviceIntent = Intent(this, com.example.remotecontrol.service.MediaProjectionService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            FileLogger.writeLine("startMediaProjectionService invoked successfully")
+        } catch (e: Exception) {
+            FileLogger.writeLine("Error starting MediaProjectionService: ${e.message}")
+            android.util.Log.e("RemoteControl", "Failed to start foreground service", e)
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        FileLogger.writeLine("onActivityResult: requestCode=$requestCode, resultCode=$resultCode, data=${data != null}")
         if (requestCode == 100 && resultCode == RESULT_OK && data != null) {
             projectionIntent = data
             statusText.text = "Status: Media Projection Ready"
+            FileLogger.writeLine("MediaProjection permission granted, projectionIntent saved")
+
+            if (wantLocalPreview) {
+                // 优先处理本地预览
+                wantLocalPreview = false
+                FileLogger.writeLine("onActivityResult -> starting local preview by flag")
+                startLocalPreview()
+            } else {
+                // 如果之前收到 request_offer 时还没授权，这里补发握手
+                pendingWebClientId?.let { sender ->
+                    FileLogger.writeLine("pendingWebClientId exists ($sender), start handshake now")
+                    pendingWebClientId = null
+                    startWebrtcHandshake(sender)
+                }
+            }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        mSocket.disconnect()
+        if (this::mSocket.isInitialized) {
+            mSocket.disconnect()
+        }
         screenStreamer?.stop()
         peerConnection?.close()
         // Stop the foreground service

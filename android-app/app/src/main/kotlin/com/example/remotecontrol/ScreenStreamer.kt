@@ -7,45 +7,70 @@
 
 package com.example.remotecontrol
 
+import android.content.Context
 import android.media.projection.MediaProjection
+import android.content.Intent
 import org.webrtc.*
 import com.example.remotecontrol.service.RemoteControlAccessibilityService
 import io.socket.client.Socket
 
 class ScreenStreamer(
+    private val context: Context,
     private val mediaProjectionData: Intent,
-    private val peerConnectionFactory: PeerConnectionFactory
+    private val peerConnectionFactory: PeerConnectionFactory,
+    private val eglContext: EglBase.Context
 ) {
     private var localVideoTrack: VideoTrack? = null
     private var videoSource: VideoSource? = null
     private var capturer: VideoCapturer? = null
+    private var surfaceTextureHelper: SurfaceTextureHelper? = null
 
-    fun startStreaming(pc: PeerConnection) {
-        val helper = SurfaceTextureHelper.create("ScreenCaptureThread", EglBase.create().eglBaseContext)
+    fun startStreaming(pc: PeerConnection?) {
+        FileLogger.writeLine("ScreenStreamer.startStreaming called, withPeerConnection=${pc != null}")
+        
+        surfaceTextureHelper = SurfaceTextureHelper.create("ScreenCaptureThread", eglContext)
         
         // 使用 Intent 正确初始化屏幕捕捉器
         capturer = ScreenCapturerAndroid(mediaProjectionData, object : MediaProjection.Callback() {
             override fun onStop() {
                 super.onStop()
                 android.util.Log.d("RemoteControl", "MediaProjection stopped")
+                FileLogger.writeLine("MediaProjection stopped by system")
             }
         })
         
         videoSource = peerConnectionFactory.createVideoSource(capturer!!.isScreencast)
-        capturer?.initialize(helper, null, videoSource?.capturerObserver)
-        capturer?.startCapture(1280, 720, 30)
+        capturer?.initialize(surfaceTextureHelper, context.applicationContext, videoSource?.capturerObserver)
+        try {
+            // 设置一个更通用的分辨率，或者尝试根据屏幕动态获取（这里暂设为 720p 兼容性更好）
+            capturer?.startCapture(1280, 720, 30)
+            FileLogger.writeLine("Screen capture started at 1280x720@30fps")
+        } catch (e: Exception) {
+            FileLogger.writeLine("startCapture exception: ${e.message}")
+        }
 
         localVideoTrack = peerConnectionFactory.createVideoTrack("VIDEO_TRACK", videoSource)
         
         // 将轨道添加到 PeerConnection
-        pc.addTrack(localVideoTrack, listOf("STREAM"))
+        pc?.addTrack(localVideoTrack, listOf("STREAM"))
+    }
+
+    // 给本机预览使用
+    fun attachPreview(renderer: VideoSink) {
+        localVideoTrack?.addSink(renderer)
     }
 
     fun stop() {
-        capturer?.stopCapture()
+        try {
+            capturer?.stopCapture()
+            FileLogger.writeLine("Screen capture stopped")
+        } catch (_: Exception) {
+        }
         capturer?.dispose()
         videoSource?.dispose()
         localVideoTrack?.dispose()
+        surfaceTextureHelper?.dispose()
+        surfaceTextureHelper = null
     }
 }
 

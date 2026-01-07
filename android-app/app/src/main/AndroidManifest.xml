@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
@@ -11,14 +12,20 @@
         android:theme="@style/Theme.RemoteControl"
         android:usesCleartextTraffic="true">
         
+        <!-- 首启进入权限引导页，负责检查/引导开启无障碍服务 -->
         <activity
-            android:name=".MainActivity"
+            android:name=".PermissionActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 主功能页，仅在权限满足后由 PermissionActivity 打开 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
 
         <service
             android:name=".service.RemoteControlAccessibilityService"
