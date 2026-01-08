@@ -10,6 +10,7 @@ const App: React.FC = () => {
   const [isServerConnected, setIsServerConnected] = useState(false);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [forceRelay, setForceRelay] = useState(false);
+  const [frameData, setFrameData] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const roomIdRef = useRef<string | null>(null); // 用于在异步回调中获取最新的 roomId
@@ -75,6 +76,9 @@ const App: React.FC = () => {
         } else {
           pendingCandidates.push(payload);
         }
+      } else if (type === 'frame') {
+        setFrameData(`data:image/jpeg;base64,${payload}`);
+        if (status !== 'Streaming...') setStatus('Streaming...');
       }
     });
   };
