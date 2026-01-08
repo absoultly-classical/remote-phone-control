@@ -228,6 +228,10 @@ class MainActivity : AppCompatActivity() {
                     "request_offer" -> {
                         FileLogger.writeLine("Handling request_offer from sender=$sender")
                         runOnUiThread { statusText.text = "Status: Pairing..." }
+                        
+                        // 无论如何先尝试启动 WebSocket 流
+                        startWebSocketStream()
+                        
                         // 如果还没有录屏授权，先记录下来，等用户点“Start Media Projection”授权后自动发起握手
                         if (projectionIntent == null) {
                             pendingWebClientId = sender
@@ -352,9 +356,12 @@ class MainActivity : AppCompatActivity() {
             )
             bitmap.copyPixelsFromBuffer(buffer)
             image.close()
+            
+            // 裁剪掉 Padding 部分，得到准确的屏幕画面
+            val croppedBitmap = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, width, height)
 
             val out = java.io.ByteArrayOutputStream()
-            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, out)
+            croppedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 60, out)
             val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
             
             val data = org.json.JSONObject()
@@ -362,6 +369,14 @@ class MainActivity : AppCompatActivity() {
             data.put("type", "frame")
             data.put("payload", base64)
             mSocket.emit("signal", data)
+            
+            // 释放 Bitmap 资源
+            bitmap.recycle()
+            croppedBitmap.recycle()
+            
+            if (now % 5000 < 100) { // 每隔约 5 秒打印一次发送日志
+                FileLogger.writeLine("WebSocket frame sent, size=${base64.length}")
+            }
         }, handler)
     }
 

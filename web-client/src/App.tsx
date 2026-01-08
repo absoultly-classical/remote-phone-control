@@ -77,6 +77,7 @@ const App: React.FC = () => {
           pendingCandidates.push(payload);
         }
       } else if (type === 'frame') {
+        console.log('Received WebSocket frame, size:', payload.length);
         setFrameData(`data:image/jpeg;base64,${payload}`);
         if (status !== 'Streaming...') setStatus('Streaming...');
       }
