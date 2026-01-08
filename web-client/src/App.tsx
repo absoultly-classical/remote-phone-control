@@ -58,17 +58,21 @@ const App: React.FC = () => {
       const { type, payload } = data;
       if (type === 'offer') {
         await handleOffer(payload);
-        // 处理在 Offer 到达前收到的候选者
         while (pendingCandidates.length > 0) {
           const cand = pendingCandidates.shift();
-          if (cand) await pcRef.current?.addIceCandidate(new RTCIceCandidate(cand));
+          if (cand) await pcRef.current?.addIceCandidate(new RTCIceCandidate(cand)).catch(e => console.warn('Buffered candidate error:', e));
         }
       } else if (type === 'candidate') {
+        // 过滤掉可能导致浏览器报错或挂起的无效 .local 地址（如果环境不支持 mDNS）
+        if (payload.candidate && payload.candidate.includes('.local') && !window.location.hostname.includes('localhost')) {
+          console.log('Skipping mDNS candidate for non-local environment');
+          return;
+        }
+        
         console.log('Received remote ICE candidate:', payload.candidate);
         if (pcRef.current && pcRef.current.remoteDescription) {
-          await pcRef.current.addIceCandidate(new RTCIceCandidate(payload));
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(payload)).catch(e => console.warn('Add candidate error:', e));
         } else {
-          console.log('Remote description not set yet, buffering candidate');
           pendingCandidates.push(payload);
         }
       }
@@ -126,20 +130,14 @@ const App: React.FC = () => {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun.anyfirewall.com:3478' },
         {
-          urls: 'turn:a.relay.metered.ca:80',
-          username: 'e8dd65c92f6067e7e3c2c6e0',
-          credential: 'uWdWNmkhvyqTmFPm'
-        },
-        {
-          urls: 'turn:a.relay.metered.ca:443',
-          username: 'e8dd65c92f6067e7e3c2c6e0',
-          credential: 'uWdWNmkhvyqTmFPm'
-        },
-        {
-          urls: 'turn:a.relay.metered.ca:443?transport=tcp',
+          urls: [
+            'turn:a.relay.metered.ca:443?transport=tcp',
+            'turn:a.relay.metered.ca:443?transport=udp',
+            'turn:a.relay.metered.ca:80?transport=tcp',
+            'turn:a.relay.metered.ca:80?transport=udp'
+          ],
           username: 'e8dd65c92f6067e7e3c2c6e0',
           credential: 'uWdWNmkhvyqTmFPm'
         }
@@ -196,12 +194,15 @@ const App: React.FC = () => {
 
     pc.onconnectionstatechange = () => {
       console.log('Connection state:', pc.connectionState);
-      if (pc.connectionState === 'failed') {
-        console.warn('WebRTC connection failed, attempting to restart...');
-        setStatus('Connection failed, retrying...');
-        // 延迟重试，避免无限循环
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        console.warn(`WebRTC connection ${pc.connectionState}, attempting to restart...`);
+        setStatus(`Connection ${pc.connectionState}, retrying...`);
+        
         setTimeout(() => {
-          if (roomIdRef.current) {
+          if (roomIdRef.current && socketRef.current?.connected) {
+            // 重置 PC 状态
+            pc.close();
+            pcRef.current = null;
             socketRef.current?.emit('signal', {
               room: roomIdRef.current,
               type: 'request_offer'
