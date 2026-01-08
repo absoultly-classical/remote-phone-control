@@ -9,6 +9,7 @@ const App: React.FC = () => {
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('remote_control_token') || 'your_secret_password');
   const [isServerConnected, setIsServerConnected] = useState(false);
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [forceRelay, setForceRelay] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const roomIdRef = useRef<string | null>(null); // 用于在异步回调中获取最新的 roomId
@@ -51,10 +52,26 @@ const App: React.FC = () => {
       if (!roomId) setStatus('Disconnected from server');
     });
 
+    const pendingCandidates: RTCIceCandidateInit[] = [];
+
     socket.on('signal', async (data: any) => {
       const { type, payload } = data;
-      if (type === 'offer') await handleOffer(payload);
-      else if (type === 'candidate') await pcRef.current?.addIceCandidate(new RTCIceCandidate(payload));
+      if (type === 'offer') {
+        await handleOffer(payload);
+        // 处理在 Offer 到达前收到的候选者
+        while (pendingCandidates.length > 0) {
+          const cand = pendingCandidates.shift();
+          if (cand) await pcRef.current?.addIceCandidate(new RTCIceCandidate(cand));
+        }
+      } else if (type === 'candidate') {
+        console.log('Received remote ICE candidate:', payload.candidate);
+        if (pcRef.current && pcRef.current.remoteDescription) {
+          await pcRef.current.addIceCandidate(new RTCIceCandidate(payload));
+        } else {
+          console.log('Remote description not set yet, buffering candidate');
+          pendingCandidates.push(payload);
+        }
+      }
     });
   };
 
@@ -109,6 +126,8 @@ const App: React.FC = () => {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun.anyfirewall.com:3478' },
         {
           urls: 'turn:a.relay.metered.ca:80',
           username: 'e8dd65c92f6067e7e3c2c6e0',
@@ -120,13 +139,13 @@ const App: React.FC = () => {
           credential: 'uWdWNmkhvyqTmFPm'
         },
         {
-          urls: 'turns:a.relay.metered.ca:443?transport=tcp',
+          urls: 'turn:a.relay.metered.ca:443?transport=tcp',
           username: 'e8dd65c92f6067e7e3c2c6e0',
           credential: 'uWdWNmkhvyqTmFPm'
         }
       ],
       iceCandidatePoolSize: 10,
-      iceTransportPolicy: 'all', // 允许所有类型的候选者，如果还是不行可以尝试改为 'relay'
+      iceTransportPolicy: forceRelay ? 'relay' : 'all',
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require'
     });
@@ -333,6 +352,16 @@ const App: React.FC = () => {
               style={{ padding: '10px', fontSize: '15px', width: '100%', boxSizing: 'border-box', marginBottom: '15px', backgroundColor: '#333', color: '#fff', border: '1px solid #444' }}
               placeholder="Device ID (e.g. RC-A1B2)"
             />
+            <div style={{ marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input 
+                type="checkbox" 
+                id="forceRelay" 
+                checked={forceRelay} 
+                onChange={(e) => setForceRelay(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              <label htmlFor="forceRelay" style={{ fontSize: '14px', color: '#aaa', cursor: 'pointer' }}>Force Relay Mode (Use TURN)</label>
+            </div>
             {!isServerConnected ? (
               <button onClick={initializeServerConnection} style={{ width: '100%', padding: '12px', fontSize: '16px', cursor: 'pointer', backgroundColor: '#2196f3', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>
                 Connect to Server

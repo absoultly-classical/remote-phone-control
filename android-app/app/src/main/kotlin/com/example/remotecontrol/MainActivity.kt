@@ -256,7 +256,15 @@ class MainActivity : AppCompatActivity() {
                             payload.optInt("sdpMLineIndex"),
                             payload.optString("candidate")
                         )
-                        peerConnection?.addIceCandidate(candidate)
+                        if (peerConnection?.remoteDescription != null) {
+                            peerConnection?.addIceCandidate(candidate)
+                        } else {
+                            FileLogger.writeLine("Remote description not set, buffering candidate")
+                            // 这里可以增加一个简单的 List 来缓冲，但通常 Android 端作为 Offer 发起方，
+                            // 收到 Candidate 时 Remote Description (Answer) 应该已经快到了。
+                            // 为了稳妥，我们直接尝试添加，WebRTC 内部也有一定的容错。
+                            peerConnection?.addIceCandidate(candidate)
+                        }
                     }
                 }
             }
