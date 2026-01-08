@@ -12,9 +12,45 @@ const App: React.FC = () => {
   const [forceRelay, setForceRelay] = useState(false);
   const [frameData, setFrameData] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
+
+
   const roomIdRef = useRef<string | null>(null); // 用于在异步回调中获取最新的 roomId
-  const remoteStreamRef = useRef<MediaStream | null>(null); // 保存远程流引用
+
+  // Logger Setup
+  useEffect(() => {
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+
+    const logToRemote = (level: string, ...args: any[]) => {
+      if (socketRef.current && socketRef.current.connected) {
+        const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
+        socketRef.current.emit('client_log', {
+          source: 'WEB_CLIENT',
+          message: `[${level.toUpperCase()}] ${message}`
+        });
+      }
+    };
+
+    console.log = (...args) => {
+      originalLog(...args);
+      logToRemote('info', ...args);
+    };
+    console.warn = (...args) => {
+      originalWarn(...args);
+      logToRemote('warn', ...args);
+    };
+    console.error = (...args) => {
+      originalError(...args);
+      logToRemote('error', ...args);
+    };
+
+    return () => {
+      console.log = originalLog;
+      console.warn = originalWarn;
+      console.error = originalError;
+    };
+  }, []); // Empty dependency array to run once on mount
 
   // Step 1: Initialize connection to the signaling server
   const initializeServerConnection = () => {
@@ -53,33 +89,14 @@ const App: React.FC = () => {
       if (!roomId) setStatus('Disconnected from server');
     });
 
-    const pendingCandidates: RTCIceCandidateInit[] = [];
+
 
     socket.on('signal', async (data: any) => {
       const { type, payload } = data;
-      if (type === 'offer') {
-        await handleOffer(payload);
-        while (pendingCandidates.length > 0) {
-          const cand = pendingCandidates.shift();
-          if (cand) await pcRef.current?.addIceCandidate(new RTCIceCandidate(cand)).catch(e => console.warn('Buffered candidate error:', e));
-        }
-      } else if (type === 'candidate') {
-        // 过滤掉可能导致浏览器报错或挂起的无效 .local 地址（如果环境不支持 mDNS）
-        if (payload.candidate && payload.candidate.includes('.local') && !window.location.hostname.includes('localhost')) {
-          console.log('Skipping mDNS candidate for non-local environment');
-          return;
-        }
-        
-        console.log('Received remote ICE candidate:', payload.candidate);
-        if (pcRef.current && pcRef.current.remoteDescription) {
-          await pcRef.current.addIceCandidate(new RTCIceCandidate(payload)).catch(e => console.warn('Add candidate error:', e));
-        } else {
-          pendingCandidates.push(payload);
-        }
-      } else if (type === 'frame') {
-        console.log('Received WebSocket frame, size:', payload.length);
+      if (type === 'frame') {
+        // console.log('Received frame, size:', payload.length);
         setFrameData(`data:image/jpeg;base64,${payload}`);
-        if (status !== 'Streaming...') setStatus('Streaming...');
+        setStatus('Streaming...');
       }
     });
   };
@@ -116,181 +133,8 @@ const App: React.FC = () => {
   useEffect(() => {
     return () => {
       socketRef.current?.disconnect();
-      pcRef.current?.close();
     };
   }, []);
-
-  // 当进入流媒体视图时，确保视频元素连接到流
-  useEffect(() => {
-    if (roomId && videoRef.current && remoteStreamRef.current) {
-      console.log('Re-attaching stream after view change');
-      videoRef.current.srcObject = remoteStreamRef.current;
-      videoRef.current.play().catch(err => console.error('Re-attach play failed:', err));
-    }
-  }, [roomId]);
-
-  const initPeerConnection = () => {
-    console.log('Initializing PeerConnection...');
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun.anyfirewall.com:3478' },
-        {
-          urls: [
-            'turn:a.relay.metered.ca:443?transport=tcp',
-            'turn:a.relay.metered.ca:443?transport=udp',
-            'turn:a.relay.metered.ca:80?transport=tcp',
-            'turn:a.relay.metered.ca:80?transport=udp'
-          ],
-          username: 'e8dd65c92f6067e7e3c2c6e0',
-          credential: 'uWdWNmkhvyqTmFPm'
-        }
-      ],
-      iceCandidatePoolSize: 10,
-      iceTransportPolicy: forceRelay ? 'relay' : 'all',
-      bundlePolicy: 'max-bundle',
-      rtcpMuxPolicy: 'require'
-    });
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate && roomIdRef.current) {
-        // 打印 candidate 类型以便调试
-        const candidateType = event.candidate.candidate.split(' ')[7] || 'unknown';
-        console.log(`Sending ICE candidate: type=${candidateType}, protocol=${event.candidate.protocol}, address=${event.candidate.address}`);
-        socketRef.current?.emit('signal', {
-          room: roomIdRef.current,
-          type: 'candidate',
-          payload: event.candidate
-        });
-      } else if (!event.candidate) {
-        console.log('ICE gathering completed');
-      }
-    };
-
-    // 添加 ICE 收集状态监听
-    pc.onicegatheringstatechange = () => {
-      console.log('ICE gathering state:', pc.iceGatheringState);
-    };
-
-    pc.ontrack = (event) => {
-      console.log('ontrack event received!', event.streams);
-      console.log('Track kind:', event.track.kind, 'Track readyState:', event.track.readyState);
-      if (event.streams[0]) {
-        remoteStreamRef.current = event.streams[0];
-        console.log('Stored remote stream, tracks:', event.streams[0].getTracks().map(t => `${t.kind}:${t.readyState}`));
-        if (videoRef.current) {
-          console.log('Attaching stream to video element');
-          videoRef.current.srcObject = event.streams[0];
-          // 确保视频播放
-          videoRef.current.play().then(() => {
-            console.log('Video playback started successfully');
-          }).catch((err) => {
-            console.error('Video playback failed:', err);
-            // 如果自动播放失败，可能需要用户交互
-          });
-        }
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log('ICE connection state:', pc.iceConnectionState);
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log('Connection state:', pc.connectionState);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        console.warn(`WebRTC connection ${pc.connectionState}, attempting to restart...`);
-        setStatus(`WebRTC ${pc.connectionState}, checking fallback...`);
-        
-        setTimeout(() => {
-          if (roomIdRef.current && socketRef.current?.connected) {
-            // 重置 PC 状态
-            pc.close();
-            pcRef.current = null;
-            // 如果 10 秒内没有收到图片帧，才尝试重新发起 WebRTC 握手
-            // 否则就维持在 WebSocket 图片流模式
-            if (!frameData) {
-              socketRef.current?.emit('signal', {
-                room: roomIdRef.current,
-                type: 'request_offer'
-              });
-            }
-          }
-        }, 5000);
-      }
-    };
-
-    pcRef.current = pc;
-    return pc;
-  };
-
-  const preferCodec = (sdp: string, codec: string) => {
-    const lines = sdp.split('\r\n');
-    let videoMLineIndex = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].indexOf('m=video') === 0) {
-        videoMLineIndex = i;
-        break;
-      }
-    }
-    if (videoMLineIndex === -1) return sdp;
-
-    const payloadRegex = new RegExp(`a=rtpmap:(\\d+) ${codec}/90000`);
-    let payload: string | null = null;
-    for (let i = 0; i < lines.length; i++) {
-      const match = lines[i].match(payloadRegex);
-      if (match) {
-        payload = match[1];
-        break;
-      }
-    }
-    if (!payload) return sdp;
-
-    const elements = lines[videoMLineIndex].split(' ');
-    const mLinePayloads = elements.slice(3);
-    const index = mLinePayloads.indexOf(payload);
-    if (index !== -1) {
-      mLinePayloads.splice(index, 1);
-      mLinePayloads.unshift(payload);
-    }
-    elements.splice(3, elements.length - 3, ...mLinePayloads);
-    lines[videoMLineIndex] = elements.join(' ');
-    return lines.join('\r\n');
-  };
-
-  const handleOffer = async (offer: RTCSessionDescriptionInit) => {
-    console.log('Received offer, creating answer...');
-    const pc = initPeerConnection();
-    
-    // 尝试在 Remote SDP 中优先选择 H264
-    if (offer.sdp) {
-      offer.sdp = preferCodec(offer.sdp, 'H264');
-    }
-    
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    
-    // 同样在 Local SDP 中优先选择 H264
-    if (answer.sdp) {
-      answer.sdp = preferCodec(answer.sdp, 'H264');
-    }
-    
-    await pc.setLocalDescription(answer);
-
-    const currentRoom = roomIdRef.current;
-    console.log('Sending answer to room:', currentRoom);
-    if (currentRoom) {
-      socketRef.current?.emit('signal', {
-        room: currentRoom,
-        type: 'answer',
-        payload: answer
-      });
-    } else {
-      console.error('Cannot send answer: roomIdRef.current is null');
-    }
-    setStatus('Streaming...');
-  };
 
   const sendControlEvent = (type: string, data: any) => {
     if (roomId) {
@@ -304,24 +148,23 @@ const App: React.FC = () => {
 
   const touchStartRef = useRef<{ x: number, y: number, time: number } | null>(null);
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLVideoElement>) => {
-    if (!videoRef.current) return;
-    const rect = videoRef.current.getBoundingClientRect();
+  const handleMouseDown = (e: React.MouseEvent<HTMLElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
     touchStartRef.current = { x, y, time: Date.now() };
   };
 
-  const handleMouseUp = (e: React.MouseEvent<HTMLVideoElement>) => {
-    if (!videoRef.current || !touchStartRef.current) return;
-    const rect = videoRef.current.getBoundingClientRect();
+  const handleMouseUp = (e: React.MouseEvent<HTMLElement>) => {
+    if (!touchStartRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
-    
+
     const dx = x - touchStartRef.current.x;
     const dy = y - touchStartRef.current.y;
     const duration = Date.now() - touchStartRef.current.time;
-    
+
     // If movement is very small, treat as click
     if (Math.sqrt(dx * dx + dy * dy) < 0.01) {
       sendControlEvent('click', { x, y });
@@ -363,10 +206,10 @@ const App: React.FC = () => {
               placeholder="Device ID (e.g. RC-A1B2)"
             />
             <div style={{ marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <input 
-                type="checkbox" 
-                id="forceRelay" 
-                checked={forceRelay} 
+              <input
+                type="checkbox"
+                id="forceRelay"
+                checked={forceRelay}
                 onChange={(e) => setForceRelay(e.target.checked)}
                 style={{ cursor: 'pointer' }}
               />

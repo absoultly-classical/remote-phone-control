@@ -1,0 +1,33 @@
+[2026-01-08T12:29:26.360Z] [ANDROID_APP] Socket EVENT_CONNECT
+[2026-01-08T12:29:27.218Z] [ANDROID_APP] Received pairing code from server: 447946
+[2026-01-08T12:29:39.707Z] [ANDROID_APP] Received signal: type=request_offer, sender=JYXCtbCvahWvx9yoAAAO
+[2026-01-08T12:29:39.710Z] [ANDROID_APP] Handling request_offer from sender=JYXCtbCvahWvx9yoAAAO
+[2026-01-08T12:29:39.711Z] [ANDROID_APP] projectionIntent is null, pendingWebClientId set, wait for user to grant screen capture
+[2026-01-08T12:29:41.688Z] [ANDROID_APP] startMediaProjectionService invoked successfully
+[2026-01-08T12:29:44.374Z] [ANDROID_APP] onActivityResult: requestCode=100, resultCode=-1, data=true
+[2026-01-08T12:29:44.379Z] [ANDROID_APP] MediaProjection permission granted, projectionIntent saved
+[2026-01-08T12:29:44.379Z] [ANDROID_APP] pendingWebClientId exists (JYXCtbCvahWvx9yoAAAO), start WebSocket stream now
+[2026-01-08T12:29:44.382Z] [ANDROID_APP] Starting WebSocket stream for room: 447946
+[2026-01-08T12:29:44.422Z] [ANDROID_APP] WebSocket stream initialized successfully
+[2026-01-08T12:33:17.412Z] [ANDROID_APP] Socket EVENT_CONNECT
+[2026-01-08T12:33:17.991Z] [ANDROID_APP] Received pairing code from server: 154184
+[2026-01-08T12:33:29.990Z] [ANDROID_APP] Received signal: type=request_offer, sender=IbFcQABe3MTddw3DAAAQ
+[2026-01-08T12:33:29.993Z] [ANDROID_APP] Handling request_offer from sender=IbFcQABe3MTddw3DAAAQ
+[2026-01-08T12:33:30.320Z] [ANDROID_APP] projectionIntent is null, pendingWebClientId set, wait for user to grant screen capture
+[2026-01-08T12:33:31.696Z] [ANDROID_APP] startMediaProjectionService invoked successfully
+[2026-01-08T12:33:33.945Z] [ANDROID_APP] onActivityResult: requestCode=100, resultCode=-1, data=true
+[2026-01-08T12:33:33.951Z] [ANDROID_APP] MediaProjection permission granted, projectionIntent saved
+[2026-01-08T12:33:33.951Z] [ANDROID_APP] pendingWebClientId exists (IbFcQABe3MTddw3DAAAQ), start WebSocket stream now
+[2026-01-08T12:33:33.954Z] [ANDROID_APP] Starting WebSocket stream for room: 154184
+[2026-01-08T12:33:33.995Z] [ANDROID_APP] WebSocket stream initialized successfully
+[2026-01-08T12:33:39.720Z] [ANDROID_APP] WS Frame Sent: 29752 bytes
+[2026-01-08T12:33:39.910Z] [ANDROID_APP] WS Frame Sent: 29652 bytes
+[2026-01-08T12:33:40.942Z] [ANDROID_APP] Received signal: type=control, sender=IbFcQABe3MTddw3DAAAQ
+[2026-01-08T12:33:40.944Z] [ANDROID_APP] Received control action: click
+[2026-01-08T12:33:44.808Z] [ANDROID_APP] Received signal: type=control, sender=IbFcQABe3MTddw3DAAAQ
+[2026-01-08T12:33:44.813Z] [ANDROID_APP] Received control action: click
+[2026-01-08T12:33:51.309Z] [ANDROID_APP] Received signal: type=control, sender=IbFcQABe3MTddw3DAAAQ
+[2026-01-08T12:33:51.310Z] [ANDROID_APP] Received control action: home
+[2026-01-08T12:34:07.777Z] [ANDROID_APP] Received signal: type=control, sender=IbFcQABe3MTddw3DAAAQ
+[2026-01-08T12:34:08.175Z] [ANDROID_APP] Received control action: click
+[2026-01-08T12:34:40.818Z] [ANDROID_APP] WS Frame Sent: 30236 bytes

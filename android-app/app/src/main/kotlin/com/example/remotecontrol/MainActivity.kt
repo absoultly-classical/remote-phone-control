@@ -199,6 +199,7 @@ class MainActivity : AppCompatActivity() {
             val opts = IO.Options()
             opts.auth = mapOf("token" to deviceId) 
             mSocket = IO.socket(finalUrl, opts)
+            FileLogger.setSocket(mSocket)
 
             mSocket.on(Socket.EVENT_CONNECT) {
                 FileLogger.writeLine("Socket EVENT_CONNECT")
@@ -229,48 +230,24 @@ class MainActivity : AppCompatActivity() {
                         FileLogger.writeLine("Handling request_offer from sender=$sender")
                         runOnUiThread { statusText.text = "Status: Pairing..." }
                         
-                        // 无论如何先尝试启动 WebSocket 流
-                        startWebSocketStream()
-                        
-                        // 如果还没有录屏授权，先记录下来，等用户点“Start Media Projection”授权后自动发起握手
                         if (projectionIntent == null) {
                             pendingWebClientId = sender
                             FileLogger.writeLine("projectionIntent is null, pendingWebClientId set, wait for user to grant screen capture")
+                            runOnUiThread { 
+                                android.widget.Toast.makeText(this@MainActivity, "Web client connected. Please tap 'Start Media Projection' to allow screen sharing.", android.widget.Toast.LENGTH_LONG).show()
+                            }
                         } else {
-                            pendingWebClientId = null
-                            startWebrtcHandshake(sender)
+                            startWebSocketStream()
                         }
                     }
+                    /*
                     "answer" -> {
-                        FileLogger.writeLine("Received answer from web client")
-                        val payload = data.optJSONObject("payload") ?: return@on
-                        val optimizedSdp = preferCodec(payload.optString("sdp"), "H264")
-                        val sdp = SessionDescription(SessionDescription.Type.ANSWER, optimizedSdp)
-                        peerConnection?.setRemoteDescription(object : SdpObserver {
-                            override fun onCreateSuccess(desc: SessionDescription?) {}
-                            override fun onSetSuccess() { android.util.Log.d("WebRTC", "Remote SDP Set Success") }
-                            override fun onCreateFailure(s: String?) { android.util.Log.e("WebRTC", "Create Failure: $s") }
-                            override fun onSetFailure(s: String?) { android.util.Log.e("WebRTC", "Remote SDP Set Failed: $s") }
-                        }, sdp)
+                       // ... (WebRTC logic disabled)
                     }
                     "candidate" -> {
-                        FileLogger.writeLine("Received ICE candidate from web client")
-                        val payload = data.optJSONObject("payload") ?: return@on
-                        val candidate = IceCandidate(
-                            payload.optString("sdpMid"),
-                            payload.optInt("sdpMLineIndex"),
-                            payload.optString("candidate")
-                        )
-                        if (peerConnection?.remoteDescription != null) {
-                            peerConnection?.addIceCandidate(candidate)
-                        } else {
-                            FileLogger.writeLine("Remote description not set, buffering candidate")
-                            // 这里可以增加一个简单的 List 来缓冲，但通常 Android 端作为 Offer 发起方，
-                            // 收到 Candidate 时 Remote Description (Answer) 应该已经快到了。
-                            // 为了稳妥，我们直接尝试添加，WebRTC 内部也有一定的容错。
-                            peerConnection?.addIceCandidate(candidate)
-                        }
+                       // ... (WebRTC logic disabled)
                     }
+                    */
                 }
             }
 
@@ -410,8 +387,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun startWebrtcHandshake(webClientId: String) {
         FileLogger.writeLine("startWebrtcHandshake called, webClientId=$webClientId")
-        // 同时启动 WebSocket 备用流
-        startWebSocketStream()
+        // 同时启动 WebSocket 备用流 (Already started in request_offer)
+        // startWebSocketStream()
         
         if (projectionIntent == null) {
             FileLogger.writeLine("startWebrtcHandshake aborted: projectionIntent is null")
@@ -475,10 +452,10 @@ class MainActivity : AppCompatActivity() {
         })
 
         // Add Video Track 并附加到本机预览
-        FileLogger.writeLine("Creating ScreenStreamer and starting capture (with WebRTC)")
-        screenStreamer = ScreenStreamer(this, projectionIntent!!, peerConnectionFactory!!, rootEglBase.eglBaseContext)
-        screenStreamer!!.startStreaming(peerConnection!!)
-        screenStreamer!!.attachPreview(previewRenderer)
+        // FileLogger.writeLine("Creating ScreenStreamer and starting capture (with WebRTC)")
+        // screenStreamer = ScreenStreamer(this, projectionIntent!!, peerConnectionFactory!!, rootEglBase.eglBaseContext)
+        // screenStreamer!!.startStreaming(peerConnection!!)
+        // screenStreamer!!.attachPreview(previewRenderer)
 
         // Create Offer
         val mediaConstraints = MediaConstraints()
@@ -614,9 +591,9 @@ class MainActivity : AppCompatActivity() {
             } else {
                 // 如果之前收到 request_offer 时还没授权，这里补发握手
                 pendingWebClientId?.let { sender ->
-                    FileLogger.writeLine("pendingWebClientId exists ($sender), start handshake now")
+                    FileLogger.writeLine("pendingWebClientId exists ($sender), start WebSocket stream now")
                     pendingWebClientId = null
-                    startWebrtcHandshake(sender)
+                    startWebSocketStream()
                 }
             }
         }

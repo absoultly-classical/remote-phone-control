@@ -3,6 +3,9 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 
+const fs = require('fs');
+const path = require('path');
+
 const app = express();
 app.use(cors());
 
@@ -70,6 +73,19 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
+  });
+
+  // Client Logging
+  socket.on('client_log', (data) => {
+    const { message, source } = data;
+    const logMsg = `[${new Date().toISOString()}] [${source || 'UNKNOWN'}] ${message}\n`;
+    console.log(`[CLIENT LOG] ${logMsg.trim()}`);
+
+    // Append to file
+    const logFile = path.join(__dirname, 'server_logs.txt');
+    fs.appendFile(logFile, logMsg, (err) => {
+      if (err) console.error('Failed to write log:', err);
+    });
   });
 });
 

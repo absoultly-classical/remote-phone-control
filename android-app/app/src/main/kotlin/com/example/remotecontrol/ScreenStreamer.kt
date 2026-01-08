@@ -125,13 +125,16 @@ class RemoteControlManager(val socket: io.socket.client.Socket) {
     }
 
     private fun handleControlMessage(payload: org.json.JSONObject) {
+        val action = payload.optString("action")
+        FileLogger.writeLine("Received control action: $action")
+        
         val service = RemoteControlAccessibilityService.instance
         if (service == null) {
-            android.util.Log.w("RemoteControl", "Accessibility Service not running!")
+            FileLogger.writeLine("ERROR: Accessibility Service not running! Cannot execute $action")
             return
         }
 
-        val action = payload.getString("action")
+
         when (action) {
             "click" -> {
                 val x = payload.getDouble("x").toFloat()

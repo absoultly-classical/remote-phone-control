@@ -7,35 +7,50 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 简单文件日志工具：
- * - 在【Android Studio项目根目录】创建 remote_control_log.txt (电脑本地，直接查看)
- * - 关键步骤写入一行文本，方便我查找
+ * 集中日志工具：
+ * 1. 发送到服务器 (server_logs.txt)
+ * 2. 写入本地文件 (remote_control_log.txt)
  */
 object FileLogger {
 
     private var logFile: File? = null
+    private var socket: io.socket.client.Socket? = null
 
     fun init(context: Context) {
         if (logFile != null) return
+        // 尝试在外部存储或私有目录创建日志
+        val dir = context.getExternalFilesDir(null) ?: context.filesDir
+        logFile = File(dir, "remote_control_log.txt")
+        writeLine("=== FileLogger Initialized ===")
+    }
 
-        // ========== 只改这里【第1处】 ==========
-        // 原代码：context.getExternalFilesDir(null) ?: context.filesDir
-        // 修改后：直接指向【项目根目录】，生成日志文件到电脑上的项目文件夹里
-        logFile = File("remote_control_log.txt")
-
-        writeLine("=== App started ===")
+    fun setSocket(s: io.socket.client.Socket) {
+        this.socket = s
+        writeLine("Socket attached to Logger")
     }
 
     @Synchronized
     fun writeLine(message: String) {
         try {
-            val file = logFile ?: return
             val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
-            // ========== 只改这里【第2处，可选优化，不改也能用】 ==========
-            // 原逻辑不变，只是格式更规范，日志追加写入，完全保留你的写法
-            file.appendText("[$ts] $message\n")
+            val formattedMsg = "[$ts] $message"
+
+            // 1. Console Log
+            android.util.Log.d("RemoteControl", formattedMsg)
+
+            // 2. Emit to Server
+            socket?.let {
+                if (it.connected()) {
+                    val data = org.json.JSONObject()
+                    data.put("source", "ANDROID_APP")
+                    data.put("message", message)
+                    it.emit("client_log", data)
+                }
+            }
+
+            // 3. Local File
+            logFile?.appendText("$formattedMsg\n")
         } catch (_: Exception) {
-            // 忽略日志写入异常，避免影响主流程 【完全保留原代码】
         }
     }
 }
