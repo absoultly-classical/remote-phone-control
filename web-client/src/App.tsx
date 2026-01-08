@@ -99,6 +99,7 @@ const App: React.FC = () => {
     if (roomId && videoRef.current && remoteStreamRef.current) {
       console.log('Re-attaching stream after view change');
       videoRef.current.srcObject = remoteStreamRef.current;
+      videoRef.current.play().catch(err => console.error('Re-attach play failed:', err));
     }
   }, [roomId]);
 
@@ -106,29 +107,35 @@ const App: React.FC = () => {
     console.log('Initializing PeerConnection...');
     const pc = new RTCPeerConnection({
       iceServers: [
+        // Google STUN 服务器
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        // Open Relay TURN 服务器（免费公共服务）
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        // Twilio STUN
+        { urls: 'stun:global.stun.twilio.com:3478' },
+        // Metered.ca 免费 TURN 服务器（需要注册获取真实凭证）
+        // 如果你有 metered.ca 账号，请替换下面的凭证
         {
-          urls: 'turn:openrelay.metered.ca:80',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
+          urls: 'turn:a.relay.metered.ca:80',
+          username: 'e8dd65c92f6067e7e3c2c6e0',
+          credential: 'uWdWNmkhvyqTmFPm'
         },
         {
-          urls: 'turn:openrelay.metered.ca:443',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
+          urls: 'turn:a.relay.metered.ca:80?transport=tcp',
+          username: 'e8dd65c92f6067e7e3c2c6e0',
+          credential: 'uWdWNmkhvyqTmFPm'
         },
         {
-          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
+          urls: 'turn:a.relay.metered.ca:443',
+          username: 'e8dd65c92f6067e7e3c2c6e0',
+          credential: 'uWdWNmkhvyqTmFPm'
         },
-        // TURNS (TLS/SSL) - 更可靠，可穿透严格防火墙
         {
-          urls: 'turns:openrelay.metered.ca:443',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
+          urls: 'turns:a.relay.metered.ca:443?transport=tcp',
+          username: 'e8dd65c92f6067e7e3c2c6e0',
+          credential: 'uWdWNmkhvyqTmFPm'
         }
       ],
       iceCandidatePoolSize: 10
@@ -136,23 +143,40 @@ const App: React.FC = () => {
 
     pc.onicecandidate = (event) => {
       if (event.candidate && roomIdRef.current) {
-        console.log('Sending ICE candidate');
+        // 打印 candidate 类型以便调试
+        const candidateType = event.candidate.candidate.split(' ')[7] || 'unknown';
+        console.log(`Sending ICE candidate: type=${candidateType}, protocol=${event.candidate.protocol}, address=${event.candidate.address}`);
         socketRef.current?.emit('signal', {
           room: roomIdRef.current,
           type: 'candidate',
           payload: event.candidate
         });
+      } else if (!event.candidate) {
+        console.log('ICE gathering completed');
       }
+    };
+
+    // 添加 ICE 收集状态监听
+    pc.onicegatheringstatechange = () => {
+      console.log('ICE gathering state:', pc.iceGatheringState);
     };
 
     pc.ontrack = (event) => {
       console.log('ontrack event received!', event.streams);
+      console.log('Track kind:', event.track.kind, 'Track readyState:', event.track.readyState);
       if (event.streams[0]) {
         remoteStreamRef.current = event.streams[0];
-        console.log('Stored remote stream');
+        console.log('Stored remote stream, tracks:', event.streams[0].getTracks().map(t => `${t.kind}:${t.readyState}`));
         if (videoRef.current) {
           console.log('Attaching stream to video element');
           videoRef.current.srcObject = event.streams[0];
+          // 确保视频播放
+          videoRef.current.play().then(() => {
+            console.log('Video playback started successfully');
+          }).catch((err) => {
+            console.error('Video playback failed:', err);
+            // 如果自动播放失败，可能需要用户交互
+          });
         }
       }
     };
@@ -290,7 +314,12 @@ const App: React.FC = () => {
             ref={videoRef}
             autoPlay
             playsInline
+            muted
             onClick={handleCanvasClick}
+            onLoadedMetadata={() => {
+              console.log('Video metadata loaded, attempting to play...');
+              videoRef.current?.play().catch(err => console.error('Play on metadata failed:', err));
+            }}
             style={{ width: '100%', display: 'block', cursor: 'pointer', backgroundColor: '#000' }}
           />
           {status === 'Paired with device' && (

@@ -305,24 +305,30 @@ class MainActivity : AppCompatActivity() {
 
         // Create PeerConnection with STUN + TURN servers for NAT traversal
         val iceServers = listOf(
+            // Google STUN 服务器
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
             PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("turn:openrelay.metered.ca:80")
-                .setUsername("openrelayproject")
-                .setPassword("openrelayproject")
+            PeerConnection.IceServer.builder("stun:stun2.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun3.l.google.com:19302").createIceServer(),
+            PeerConnection.IceServer.builder("stun:stun4.l.google.com:19302").createIceServer(),
+            // Twilio STUN
+            PeerConnection.IceServer.builder("stun:global.stun.twilio.com:3478").createIceServer(),
+            // Metered.ca 免费 TURN 服务器
+            PeerConnection.IceServer.builder("turn:a.relay.metered.ca:80")
+                .setUsername("e8dd65c92f6067e7e3c2c6e0")
+                .setPassword("uWdWNmkhvyqTmFPm")
                 .createIceServer(),
-            PeerConnection.IceServer.builder("turn:openrelay.metered.ca:443")
-                .setUsername("openrelayproject")
-                .setPassword("openrelayproject")
+            PeerConnection.IceServer.builder("turn:a.relay.metered.ca:80?transport=tcp")
+                .setUsername("e8dd65c92f6067e7e3c2c6e0")
+                .setPassword("uWdWNmkhvyqTmFPm")
                 .createIceServer(),
-            PeerConnection.IceServer.builder("turn:openrelay.metered.ca:443?transport=tcp")
-                .setUsername("openrelayproject")
-                .setPassword("openrelayproject")
+            PeerConnection.IceServer.builder("turn:a.relay.metered.ca:443")
+                .setUsername("e8dd65c92f6067e7e3c2c6e0")
+                .setPassword("uWdWNmkhvyqTmFPm")
                 .createIceServer(),
-            // TURNS (TLS/SSL) - 更可靠，可穿透严格防火墙
-            PeerConnection.IceServer.builder("turns:openrelay.metered.ca:443")
-                .setUsername("openrelayproject")
-                .setPassword("openrelayproject")
+            PeerConnection.IceServer.builder("turns:a.relay.metered.ca:443?transport=tcp")
+                .setUsername("e8dd65c92f6067e7e3c2c6e0")
+                .setPassword("uWdWNmkhvyqTmFPm")
                 .createIceServer()
         )
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
