@@ -201,19 +201,23 @@ const App: React.FC = () => {
       console.log('Connection state:', pc.connectionState);
       if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
         console.warn(`WebRTC connection ${pc.connectionState}, attempting to restart...`);
-        setStatus(`Connection ${pc.connectionState}, retrying...`);
+        setStatus(`WebRTC ${pc.connectionState}, checking fallback...`);
         
         setTimeout(() => {
           if (roomIdRef.current && socketRef.current?.connected) {
             // 重置 PC 状态
             pc.close();
             pcRef.current = null;
-            socketRef.current?.emit('signal', {
-              room: roomIdRef.current,
-              type: 'request_offer'
-            });
+            // 如果 10 秒内没有收到图片帧，才尝试重新发起 WebRTC 握手
+            // 否则就维持在 WebSocket 图片流模式
+            if (!frameData) {
+              socketRef.current?.emit('signal', {
+                room: roomIdRef.current,
+                type: 'request_offer'
+              });
+            }
           }
-        }, 3000);
+        }, 5000);
       }
     };
 

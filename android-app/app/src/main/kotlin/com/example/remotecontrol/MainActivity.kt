@@ -309,75 +309,103 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var wsImageReader: android.media.ImageReader? = null
+    private var wsVirtualDisplay: android.hardware.display.VirtualDisplay? = null
+    private var wsHandlerThread: android.os.HandlerThread? = null
+
     private fun startWebSocketStream() {
         val code = currentCode ?: return
-        if (projectionIntent == null) return
-        
-        if (mediaProjection == null) {
-            mediaProjection = projectionManager.getMediaProjection(RESULT_OK, projectionIntent!!)
+        if (projectionIntent == null) {
+            FileLogger.writeLine("startWebSocketStream: No projectionIntent")
+            return
         }
         
-        val metrics = resources.displayMetrics
-        val width = 480
-        val height = (width * (metrics.heightPixels.toFloat() / metrics.widthPixels)).toInt()
+        // 清理旧的资源
+        wsVirtualDisplay?.release()
+        wsImageReader?.close()
+        wsHandlerThread?.quitSafely()
         
-        val imageReader = android.media.ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 2)
-        mediaProjection?.createVirtualDisplay(
-            "ScreenCapture", width, height, metrics.densityDpi,
-            android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader.surface, null, null
-        )
-
-        val handlerThread = android.os.HandlerThread("ImageReaderThread")
-        handlerThread.start()
-        val handler = android.os.Handler(handlerThread.looper)
-
-        var lastSendTime = 0L
-        imageReader.setOnImageAvailableListener({ reader ->
-            val now = System.currentTimeMillis()
-            if (now - lastSendTime < 100) { // 限制帧率约 10fps
-                val img = reader.acquireLatestImage()
-                img?.close()
-                return@setOnImageAvailableListener
+        FileLogger.writeLine("Starting WebSocket stream for room: $code")
+        
+        try {
+            if (mediaProjection == null) {
+                mediaProjection = projectionManager.getMediaProjection(RESULT_OK, projectionIntent!!)
+                mediaProjection?.registerCallback(object : android.media.projection.MediaProjection.Callback() {
+                    override fun onStop() {
+                        FileLogger.writeLine("MediaProjection stopped")
+                        mediaProjection = null
+                    }
+                }, null)
             }
-            lastSendTime = now
-
-            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-            val planes = image.planes
-            val buffer = planes[0].buffer
-            val pixelStride = planes[0].pixelStride
-            val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * width
-
-            val bitmap = android.graphics.Bitmap.createBitmap(
-                width + rowPadding / pixelStride,
-                height,
-                android.graphics.Bitmap.Config.ARGB_8888
+            
+            val metrics = resources.displayMetrics
+            val width = 480
+            val height = (width * (metrics.heightPixels.toFloat() / metrics.widthPixels)).toInt()
+            
+            wsImageReader = android.media.ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 2)
+            wsVirtualDisplay = mediaProjection?.createVirtualDisplay(
+                "WS_ScreenCapture", width, height, metrics.densityDpi,
+                android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                wsImageReader?.surface, null, null
             )
-            bitmap.copyPixelsFromBuffer(buffer)
-            image.close()
-            
-            // 裁剪掉 Padding 部分，得到准确的屏幕画面
-            val croppedBitmap = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, width, height)
 
-            val out = java.io.ByteArrayOutputStream()
-            croppedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 60, out)
-            val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+            wsHandlerThread = android.os.HandlerThread("WS_ImageReaderThread")
+            wsHandlerThread?.start()
+            val handler = android.os.Handler(wsHandlerThread!!.looper)
+
+            var lastSendTime = 0L
+            wsImageReader?.setOnImageAvailableListener({ reader ->
+                try {
+                    val now = System.currentTimeMillis()
+                    val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                    
+                    if (now - lastSendTime < 150) { // 约 6-7 fps，降低负载
+                        image.close()
+                        return@setOnImageAvailableListener
+                    }
+                    lastSendTime = now
+
+                    val planes = image.planes
+                    val buffer = planes[0].buffer
+                    val pixelStride = planes[0].pixelStride
+                    val rowStride = planes[0].rowStride
+                    val rowPadding = rowStride - pixelStride * width
+
+                    val bitmap = android.graphics.Bitmap.createBitmap(
+                        width + rowPadding / pixelStride,
+                        height,
+                        android.graphics.Bitmap.Config.ARGB_8888
+                    )
+                    bitmap.copyPixelsFromBuffer(buffer)
+                    image.close()
+                    
+                    val croppedBitmap = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, width, height)
+                    val out = java.io.ByteArrayOutputStream()
+                    croppedBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 50, out)
+                    val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+                    
+                    val data = org.json.JSONObject()
+                    data.put("room", code)
+                    data.put("type", "frame")
+                    data.put("payload", base64)
+                    mSocket.emit("signal", data)
+                    
+                    bitmap.recycle()
+                    croppedBitmap.recycle()
+                    
+                    if (now % 10000 < 200) {
+                        FileLogger.writeLine("WS Frame Sent: ${base64.length} bytes")
+                    }
+                } catch (e: Exception) {
+                    FileLogger.writeLine("Error in ImageReader listener: ${e.message}")
+                }
+            }, handler)
             
-            val data = org.json.JSONObject()
-            data.put("room", code)
-            data.put("type", "frame")
-            data.put("payload", base64)
-            mSocket.emit("signal", data)
-            
-            // 释放 Bitmap 资源
-            bitmap.recycle()
-            croppedBitmap.recycle()
-            
-            if (now % 5000 < 100) { // 每隔约 5 秒打印一次发送日志
-                FileLogger.writeLine("WebSocket frame sent, size=${base64.length}")
-            }
-        }, handler)
+            FileLogger.writeLine("WebSocket stream initialized successfully")
+        } catch (e: Exception) {
+            FileLogger.writeLine("Failed to start WebSocket stream: ${e.message}")
+            e.printStackTrace()
+        }
     }
 
     private fun startWebrtcHandshake(webClientId: String) {
