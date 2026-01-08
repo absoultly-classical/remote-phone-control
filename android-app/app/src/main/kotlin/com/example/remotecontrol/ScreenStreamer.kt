@@ -78,14 +78,13 @@ class ScreenStreamer(
 class RemoteControlManager(val socket: io.socket.client.Socket) {
     init {
         socket.on("signal") { args: Array<Any> ->
-            val data = args[0] as org.json.JSONObject
-            val type = data.getString("type")
+            val data = args[0] as? org.json.JSONObject ?: return@on
+            val type = data.optString("type")
             
             if (type == "control") {
-                val payload = data.getJSONObject("payload")
+                val payload = data.optJSONObject("payload") ?: return@on
                 handleControlMessage(payload)
             }
-            // 处理 RTC 信令 (answer, candidate) ...
         }
     }
 
@@ -106,6 +105,14 @@ class RemoteControlManager(val socket: io.socket.client.Socket) {
             "home" -> service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
             "back" -> service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
             "recents" -> service.performAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS)
+            "swipe" -> {
+                val x1 = payload.getDouble("x1").toFloat()
+                val y1 = payload.getDouble("y1").toFloat()
+                val x2 = payload.getDouble("x2").toFloat()
+                val y2 = payload.getDouble("y2").toFloat()
+                val duration = payload.optLong("duration", 300L)
+                service.performSwipe(x1, y1, x2, y2, duration)
+            }
         }
     }
 }

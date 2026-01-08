@@ -29,7 +29,8 @@ class MainActivity : AppCompatActivity() {
     private var peerConnection: PeerConnection? = null
     private var screenStreamer: ScreenStreamer? = null
     private var controlManager: RemoteControlManager? = null
-
+    private var currentCode: String? = null
+    
     // 如果在收到 request_offer 时还没有录屏授权，先记下 sender，待授权后再发起握手
     private var pendingWebClientId: String? = null
 
@@ -209,6 +210,7 @@ class MainActivity : AppCompatActivity() {
                     if (args.isNotEmpty()) {
                         val data = args[0] as? JSONObject
                         val code = data?.optString("code", "-") ?: "-"
+                        currentCode = code
                         FileLogger.writeLine("Received pairing code from server: $code")
                         runOnUiThread { codeText.text = "Pairing Code: $code" }
                     }
@@ -341,7 +343,7 @@ class MainActivity : AppCompatActivity() {
                     put("candidate", candidate.sdp)
                 }
                 mSocket.emit("signal", JSONObject().apply {
-                    put("room", codeText.text.split(": ")[1])
+                    put("room", currentCode)
                     put("type", "candidate")
                     put("payload", payload)
                 })
@@ -379,7 +381,7 @@ class MainActivity : AppCompatActivity() {
                     put("sdp", desc.description)
                 }
                 mSocket.emit("signal", JSONObject().apply {
-                    put("room", codeText.text.split(": ")[1])
+                    put("room", currentCode)
                     put("type", "offer")
                     put("payload", payload)
                 })

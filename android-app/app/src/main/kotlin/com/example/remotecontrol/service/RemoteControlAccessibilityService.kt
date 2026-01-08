@@ -48,6 +48,30 @@ class RemoteControlAccessibilityService : AccessibilityService() {
         }, null)
     }
 
+    // 执行滑动操作
+    fun performSwipe(x1Percent: Float, y1Percent: Float, x2Percent: Float, y2Percent: Float, duration: Long) {
+        val displayMetrics = resources.displayMetrics
+        val x1 = x1Percent * displayMetrics.widthPixels
+        val y1 = y1Percent * displayMetrics.heightPixels
+        val x2 = x2Percent * displayMetrics.widthPixels
+        val y2 = y2Percent * displayMetrics.heightPixels
+
+        Log.d("RemoteControl", "Swiping from $x1, $y1 to $x2, $y2")
+
+        val path = Path()
+        path.moveTo(x1, y1)
+        path.lineTo(x2, y2)
+
+        val gestureBuilder = GestureDescription.Builder()
+        gestureBuilder.addStroke(GestureDescription.StrokeDescription(path, 0, duration))
+
+        dispatchGesture(gestureBuilder.build(), object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                super.onCompleted(gestureDescription)
+            }
+        }, null)
+    }
+
     // 执行全局按键（Home, Back等）
     fun performAction(action: Int) {
         performGlobalAction(action)

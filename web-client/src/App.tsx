@@ -224,12 +224,39 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLVideoElement>) => {
+  const touchStartRef = useRef<{ x: number, y: number, time: number } | null>(null);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLVideoElement>) => {
     if (!videoRef.current) return;
     const rect = videoRef.current.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
-    sendControlEvent('click', { x, y });
+    touchStartRef.current = { x, y, time: Date.now() };
+  };
+
+  const handleMouseUp = (e: React.MouseEvent<HTMLVideoElement>) => {
+    if (!videoRef.current || !touchStartRef.current) return;
+    const rect = videoRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    
+    const dx = x - touchStartRef.current.x;
+    const dy = y - touchStartRef.current.y;
+    const duration = Date.now() - touchStartRef.current.time;
+    
+    // If movement is very small, treat as click
+    if (Math.sqrt(dx * dx + dy * dy) < 0.01) {
+      sendControlEvent('click', { x, y });
+    } else {
+      sendControlEvent('swipe', {
+        x1: touchStartRef.current.x,
+        y1: touchStartRef.current.y,
+        x2: x,
+        y2: y,
+        duration: Math.max(duration, 100) // Minimum 100ms for swipe
+      });
+    }
+    touchStartRef.current = null;
   };
 
   if (!roomId) {
@@ -315,12 +342,13 @@ const App: React.FC = () => {
             autoPlay
             playsInline
             muted
-            onClick={handleCanvasClick}
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
             onLoadedMetadata={() => {
               console.log('Video metadata loaded, attempting to play...');
               videoRef.current?.play().catch(err => console.error('Play on metadata failed:', err));
             }}
-            style={{ width: '100%', display: 'block', cursor: 'pointer', backgroundColor: '#000' }}
+            style={{ width: '100%', height: 'auto', display: 'block', cursor: 'pointer', backgroundColor: '#000', objectFit: 'contain' }}
           />
           {status === 'Paired with device' && (
             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#aaa' }}>
@@ -337,7 +365,7 @@ const App: React.FC = () => {
             <button onClick={() => sendControlEvent('back', {})} style={{ padding: '15px', fontSize: '16px', backgroundColor: '#333', color: 'white', border: '1px solid #444', borderRadius: '8px', cursor: 'pointer' }}>Back</button>
             <button onClick={() => sendControlEvent('recents', {})} style={{ padding: '15px', fontSize: '16px', backgroundColor: '#333', color: 'white', border: '1px solid #444', borderRadius: '8px', cursor: 'pointer' }}>Recents</button>
           </div>
-          <p style={{ marginTop: '20px', fontSize: '12px', color: '#666' }}>Click video to simulate touch events</p>
+          <p style={{ marginTop: '20px', fontSize: '12px', color: '#666' }}>Click to tap, drag to swipe</p>
         </div>
       </div>
     </div>
