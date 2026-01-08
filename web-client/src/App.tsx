@@ -107,23 +107,10 @@ const App: React.FC = () => {
     console.log('Initializing PeerConnection...');
     const pc = new RTCPeerConnection({
       iceServers: [
-        // Google STUN 服务器
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' },
-        // Twilio STUN
-        { urls: 'stun:global.stun.twilio.com:3478' },
-        // Metered.ca 免费 TURN 服务器（需要注册获取真实凭证）
-        // 如果你有 metered.ca 账号，请替换下面的凭证
         {
           urls: 'turn:a.relay.metered.ca:80',
-          username: 'e8dd65c92f6067e7e3c2c6e0',
-          credential: 'uWdWNmkhvyqTmFPm'
-        },
-        {
-          urls: 'turn:a.relay.metered.ca:80?transport=tcp',
           username: 'e8dd65c92f6067e7e3c2c6e0',
           credential: 'uWdWNmkhvyqTmFPm'
         },
@@ -138,7 +125,10 @@ const App: React.FC = () => {
           credential: 'uWdWNmkhvyqTmFPm'
         }
       ],
-      iceCandidatePoolSize: 10
+      iceCandidatePoolSize: 10,
+      iceTransportPolicy: 'all', // 允许所有类型的候选者，如果还是不行可以尝试改为 'relay'
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
     });
 
     pc.onicecandidate = (event) => {
@@ -187,17 +177,76 @@ const App: React.FC = () => {
 
     pc.onconnectionstatechange = () => {
       console.log('Connection state:', pc.connectionState);
+      if (pc.connectionState === 'failed') {
+        console.warn('WebRTC connection failed, attempting to restart...');
+        setStatus('Connection failed, retrying...');
+        // 延迟重试，避免无限循环
+        setTimeout(() => {
+          if (roomIdRef.current) {
+            socketRef.current?.emit('signal', {
+              room: roomIdRef.current,
+              type: 'request_offer'
+            });
+          }
+        }, 3000);
+      }
     };
 
     pcRef.current = pc;
     return pc;
   };
 
+  const preferCodec = (sdp: string, codec: string) => {
+    const lines = sdp.split('\r\n');
+    let videoMLineIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].indexOf('m=video') === 0) {
+        videoMLineIndex = i;
+        break;
+      }
+    }
+    if (videoMLineIndex === -1) return sdp;
+
+    const payloadRegex = new RegExp(`a=rtpmap:(\\d+) ${codec}/90000`);
+    let payload: string | null = null;
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(payloadRegex);
+      if (match) {
+        payload = match[1];
+        break;
+      }
+    }
+    if (!payload) return sdp;
+
+    const elements = lines[videoMLineIndex].split(' ');
+    const mLinePayloads = elements.slice(3);
+    const index = mLinePayloads.indexOf(payload);
+    if (index !== -1) {
+      mLinePayloads.splice(index, 1);
+      mLinePayloads.unshift(payload);
+    }
+    elements.splice(3, elements.length - 3, ...mLinePayloads);
+    lines[videoMLineIndex] = elements.join(' ');
+    return lines.join('\r\n');
+  };
+
   const handleOffer = async (offer: RTCSessionDescriptionInit) => {
     console.log('Received offer, creating answer...');
     const pc = initPeerConnection();
+    
+    // 尝试在 Remote SDP 中优先选择 H264
+    if (offer.sdp) {
+      offer.sdp = preferCodec(offer.sdp, 'H264');
+    }
+    
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
+    
+    // 同样在 Local SDP 中优先选择 H264
+    if (answer.sdp) {
+      answer.sdp = preferCodec(answer.sdp, 'H264');
+    }
+    
     await pc.setLocalDescription(answer);
 
     const currentRoom = roomIdRef.current;

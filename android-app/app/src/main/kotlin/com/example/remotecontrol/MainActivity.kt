@@ -239,7 +239,8 @@ class MainActivity : AppCompatActivity() {
                     "answer" -> {
                         FileLogger.writeLine("Received answer from web client")
                         val payload = data.optJSONObject("payload") ?: return@on
-                        val sdp = SessionDescription(SessionDescription.Type.ANSWER, payload.optString("sdp"))
+                        val optimizedSdp = preferCodec(payload.optString("sdp"), "H264")
+                        val sdp = SessionDescription(SessionDescription.Type.ANSWER, optimizedSdp)
                         peerConnection?.setRemoteDescription(object : SdpObserver {
                             override fun onCreateSuccess(desc: SessionDescription?) {}
                             override fun onSetSuccess() { android.util.Log.d("WebRTC", "Remote SDP Set Success") }
@@ -334,6 +335,10 @@ class MainActivity : AppCompatActivity() {
                 .createIceServer()
         )
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
+        rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+        rtcConfig.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+        rtcConfig.keyType = PeerConnection.KeyType.ECDSA
+        
         peerConnection = peerConnectionFactory!!.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
             override fun onIceCandidate(candidate: IceCandidate?) {
                 if (candidate == null) return
@@ -371,14 +376,21 @@ class MainActivity : AppCompatActivity() {
         screenStreamer!!.attachPreview(previewRenderer)
 
         // Create Offer
+        val mediaConstraints = MediaConstraints()
+        mediaConstraints.mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
+        
         peerConnection!!.createOffer(object : SdpObserver {
             override fun onCreateSuccess(desc: SessionDescription?) {
                 if (desc == null) return
                 FileLogger.writeLine("createOffer onCreateSuccess, sdp length=${desc.description.length}")
-                peerConnection!!.setLocalDescription(this, desc)
+                
+                val optimizedSdp = preferCodec(desc.description, "H264")
+                val newDesc = SessionDescription(desc.type, optimizedSdp)
+                
+                peerConnection!!.setLocalDescription(this, newDesc)
                 val payload = JSONObject().apply {
                     put("type", "offer")
-                    put("sdp", desc.description)
+                    put("sdp", optimizedSdp)
                 }
                 mSocket.emit("signal", JSONObject().apply {
                     put("room", currentCode)
@@ -397,7 +409,7 @@ class MainActivity : AppCompatActivity() {
                 android.util.Log.e("WebRTC", "Set Local SDP Failed: $s")
                 FileLogger.writeLine("setLocalDescription onSetFailure: $s")
             }
-        }, MediaConstraints())
+        }, mediaConstraints)
     }
 
     // 仅本机预览使用：不创建 PeerConnection，只采集 + 显示在本地
@@ -414,6 +426,41 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             statusText.text = "Status: Local Preview Running"
         }
+    }
+
+    private fun preferCodec(sdp: String, codec: String): String {
+        val lines = sdp.split("\r\n")
+        var videoMLineIndex = -1
+        for (i in lines.indices) {
+            if (lines[i].startsWith("m=video")) {
+                videoMLineIndex = i
+                break
+            }
+        }
+        if (videoMLineIndex == -1) return sdp
+
+        val payloadRegex = Regex("a=rtpmap:(\\d+) $codec/90000")
+        var payload: String? = null
+        for (i in lines.indices) {
+            val match = payloadRegex.find(lines[i])
+            if (match != null) {
+                payload = match.groupValues[1]
+                break
+            }
+        }
+        if (payload == null) return sdp
+
+        val elements = lines[videoMLineIndex].split(" ").toMutableList()
+        val mLinePayloads = elements.subList(3, elements.size)
+        val index = mLinePayloads.indexOf(payload)
+        if (index != -1) {
+            mLinePayloads.removeAt(index)
+            mLinePayloads.add(0, payload)
+        }
+        val newMLine = elements.subList(0, 3).joinToString(" ") + " " + mLinePayloads.joinToString(" ")
+        val newLines = lines.toMutableList()
+        newLines[videoMLineIndex] = newMLine
+        return newLines.joinToString("\r\n")
     }
 
     private fun ensurePeerConnectionFactory() {
