@@ -416,20 +416,30 @@ const App: React.FC = () => {
       <div style={{ display: 'flex', gap: '30px', alignItems: 'flex-start' }}>
         {/* Video Stream */}
         <div style={{ flex: 1, position: 'relative', border: '5px solid #333', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.8)' }}>
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            onMouseDown={handleMouseDown}
-            onMouseUp={handleMouseUp}
-            onLoadedMetadata={() => {
-              console.log('Video metadata loaded, attempting to play...');
-              videoRef.current?.play().catch(err => console.error('Play on metadata failed:', err));
-            }}
-            style={{ width: '100%', height: 'auto', display: 'block', cursor: 'pointer', backgroundColor: '#000', objectFit: 'contain' }}
-          />
-          {status === 'Paired with device' && (
+          {frameData ? (
+            <img
+              src={frameData}
+              onMouseDown={handleMouseDown}
+              onMouseUp={handleMouseUp}
+              style={{ width: '100%', height: 'auto', display: 'block', cursor: 'pointer', backgroundColor: '#000', objectFit: 'contain' }}
+              alt="Remote Screen"
+            />
+          ) : (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              onMouseDown={handleMouseDown}
+              onMouseUp={handleMouseUp}
+              onLoadedMetadata={() => {
+                console.log('Video metadata loaded, attempting to play...');
+                videoRef.current?.play().catch(err => console.error('Play on metadata failed:', err));
+              }}
+              style={{ width: '100%', height: 'auto', display: 'block', cursor: 'pointer', backgroundColor: '#000', objectFit: 'contain' }}
+            />
+          )}
+          {status === 'Paired with device' && !frameData && (
             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#aaa' }}>
               Waiting for device to start stream...
             </div>

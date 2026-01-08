@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private var screenStreamer: ScreenStreamer? = null
     private var controlManager: RemoteControlManager? = null
     private var currentCode: String? = null
+    private var mediaProjection: android.media.projection.MediaProjection? = null
     
     // 如果在收到 request_offer 时还没有录屏授权，先记下 sender，待授权后再发起握手
     private var pendingWebClientId: String? = null
@@ -304,8 +305,71 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun startWebSocketStream() {
+        val code = currentCode ?: return
+        if (projectionIntent == null) return
+        
+        if (mediaProjection == null) {
+            mediaProjection = projectionManager.getMediaProjection(RESULT_OK, projectionIntent!!)
+        }
+        
+        val metrics = resources.displayMetrics
+        val width = 480
+        val height = (width * (metrics.heightPixels.toFloat() / metrics.widthPixels)).toInt()
+        
+        val imageReader = android.media.ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 2)
+        mediaProjection?.createVirtualDisplay(
+            "ScreenCapture", width, height, metrics.densityDpi,
+            android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader.surface, null, null
+        )
+
+        val handlerThread = android.os.HandlerThread("ImageReaderThread")
+        handlerThread.start()
+        val handler = android.os.Handler(handlerThread.looper)
+
+        var lastSendTime = 0L
+        imageReader.setOnImageAvailableListener({ reader ->
+            val now = System.currentTimeMillis()
+            if (now - lastSendTime < 100) { // 限制帧率约 10fps
+                val img = reader.acquireLatestImage()
+                img?.close()
+                return@setOnImageAvailableListener
+            }
+            lastSendTime = now
+
+            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            val pixelStride = planes[0].pixelStride
+            val rowStride = planes[0].rowStride
+            val rowPadding = rowStride - pixelStride * width
+
+            val bitmap = android.graphics.Bitmap.createBitmap(
+                width + rowPadding / pixelStride,
+                height,
+                android.graphics.Bitmap.Config.ARGB_8888
+            )
+            bitmap.copyPixelsFromBuffer(buffer)
+            image.close()
+
+            val out = java.io.ByteArrayOutputStream()
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, out)
+            val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+            
+            val data = org.json.JSONObject()
+            data.put("room", code)
+            data.put("type", "frame")
+            data.put("payload", base64)
+            mSocket.emit("signal", data)
+        }, handler)
+    }
+
     private fun startWebrtcHandshake(webClientId: String) {
         FileLogger.writeLine("startWebrtcHandshake called, webClientId=$webClientId")
+        // 同时启动 WebSocket 备用流
+        startWebSocketStream()
+        
         if (projectionIntent == null) {
             FileLogger.writeLine("startWebrtcHandshake aborted: projectionIntent is null")
             runOnUiThread { android.widget.Toast.makeText(this, "Please start Media Projection first!", android.widget.Toast.LENGTH_SHORT).show() }
